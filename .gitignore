@@ -19,3 +19,6 @@ miniodata/
 # IDE
 .idea/
 .vscode/
+
+backend/venv/
+backend/.venv/
