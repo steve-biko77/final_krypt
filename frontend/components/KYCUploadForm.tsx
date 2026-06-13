@@ -47,7 +47,7 @@ const KYCUploadForm = ({ onSuccess }: KYCUploadFormProps) => {
         <CheckCircle size={48} className="text-green-500" />
         <h3 className="text-18 font-semibold text-gray-900">Document soumis avec succès</h3>
         <p className="text-14 text-gray-600">
-          Votre document est en cours d'examen. Vous serez notifié dès que la vérification sera terminée.
+          Votre document est en cours d&apos;examen. Vous serez notifié dès que la vérification sera terminée.
         </p>
       </div>
     )

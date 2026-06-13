@@ -45,10 +45,10 @@ const KYCBanner = ({ kycStatus }: KYCBannerProps) => {
         <AlertCircle size={20} className="text-blue-500 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-14 font-semibold text-blue-900">
-            Vérification d'identité requise
+            Vérification d&apos;identité requise
           </p>
           <p className="text-12 text-blue-700 mt-0.5">
-            Soumettez un document d'identité pour activer vos transferts France → Cameroun.
+            Soumettez un document d&apos;identité pour activer vos transferts France → Cameroun.
           </p>
         </div>
         <Link

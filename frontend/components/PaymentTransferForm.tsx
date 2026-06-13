@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
 
-const PaymentTransferForm = ({ accounts: _ }: PaymentTransferFormProps) => {
+const PaymentTransferForm = (_props: PaymentTransferFormProps) => {
   const [isLoading] = useState(false);
 
   return (

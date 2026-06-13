@@ -43,7 +43,7 @@ jobs:
         working-directory: frontend
 
       - name: ESLint — frontend
-        run: npx next lint
+        run: npx next lint --no-cache --max-warnings=5
         working-directory: frontend
 
   # ─────────────────────────────────────────────

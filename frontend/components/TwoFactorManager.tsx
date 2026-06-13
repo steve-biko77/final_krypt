@@ -116,7 +116,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
             </p>
             <p className="text-14 text-gray-500 mt-1">
               Activez la double authentification pour sécuriser votre compte.
-              Vous aurez besoin d'une application comme Google Authenticator ou Authy.
+              Vous aurez besoin d&apos;une application comme Google Authenticator ou Authy.
             </p>
           </div>
         </div>
