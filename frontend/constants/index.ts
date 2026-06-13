@@ -19,6 +19,11 @@ export const sidebarLinks = [
     route: "/kyc",
     label: "Vérification KYC",
   },
+  {
+    imgURL: "/icons/edit.svg",
+    route: "/security",
+    label: "Sécurité",
+  },
 ];
 
 // good_user / good_password - Bank of America

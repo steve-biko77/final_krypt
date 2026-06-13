@@ -13,4 +13,6 @@ class User:
     password_hash: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     is_kyc_verified: bool = False
+    is_2fa_enabled: bool = False
+    totp_secret: str = ""
     created_at: Optional[datetime] = None

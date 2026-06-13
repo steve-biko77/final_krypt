@@ -15,6 +15,8 @@ class DjangoORMUserRepository(UserRepository):
             obj.last_name = user.last_name
             obj.phone = user.phone
             obj.is_kyc_verified = user.is_kyc_verified
+            obj.is_2fa_enabled = user.is_2fa_enabled
+            obj.totp_secret = user.totp_secret
             if user.password_hash:
                 obj.password = user.password_hash
             obj.save()
@@ -26,6 +28,8 @@ class DjangoORMUserRepository(UserRepository):
                 last_name=user.last_name,
                 phone=user.phone,
                 is_kyc_verified=user.is_kyc_verified,
+                is_2fa_enabled=user.is_2fa_enabled,
+                totp_secret=user.totp_secret,
             )
             obj.password = user.password_hash
             obj.save()
@@ -52,5 +56,7 @@ class DjangoORMUserRepository(UserRepository):
             phone=obj.phone,
             password_hash=obj.password,
             is_kyc_verified=obj.is_kyc_verified,
+            is_2fa_enabled=obj.is_2fa_enabled,
+            totp_secret=obj.totp_secret,
             created_at=obj.created_at,
         )

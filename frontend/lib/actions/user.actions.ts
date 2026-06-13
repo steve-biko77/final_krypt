@@ -12,6 +12,7 @@ interface DjangoUser {
   last_name: string;
   phone: string;
   is_kyc_verified: boolean;
+  is_2fa_enabled: boolean;
   created_at: string | null;
 }
 
@@ -19,6 +20,15 @@ interface AuthResponse {
   user: DjangoUser;
   tokens: { access: string; refresh: string };
 }
+
+interface TwoFARequiredResponse {
+  requires_2fa: true;
+  pre_auth_token: string;
+}
+
+export type SignInResult =
+  | { requires_2fa: false; user: User }
+  | { requires_2fa: true; pre_auth_token: string };
 
 function toUser(u: DjangoUser): User {
   return {
@@ -29,6 +39,7 @@ function toUser(u: DjangoUser): User {
     lastName: u.last_name,
     phone: u.phone,
     is_kyc_verified: u.is_kyc_verified,
+    is_2fa_enabled: u.is_2fa_enabled,
     name: `${u.first_name} ${u.last_name}`,
     // legacy compat — keep so existing components don't crash
     userId: u.id,
@@ -43,22 +54,60 @@ function toUser(u: DjangoUser): User {
   };
 }
 
-export const signIn = async ({ email, password }: { email: string; password: string }) => {
-  const data = await apiPost<AuthResponse>('/api/auth/login', { email, password });
-
+async function setAccessCookie(token: string) {
   const jar = await cookies();
-  jar.set(TOKEN_COOKIE, data.tokens.access, {
+  jar.set(TOKEN_COOKIE, token, {
     path: '/',
     httpOnly: true,
     sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 60 * 60,
   });
+}
 
+export const signIn = async ({
+  email,
+  password,
+}: {
+  email: string;
+  password: string;
+}): Promise<SignInResult> => {
+  const data = await apiPost<AuthResponse | TwoFARequiredResponse>(
+    '/api/auth/login',
+    { email, password },
+  );
+
+  if ('requires_2fa' in data && data.requires_2fa) {
+    return { requires_2fa: true, pre_auth_token: data.pre_auth_token };
+  }
+
+  const authData = data as AuthResponse;
+  await setAccessCookie(authData.tokens.access);
+  return { requires_2fa: false, user: toUser(authData.user) };
+};
+
+export const completeTwoFactorSignIn = async ({
+  pre_auth_token,
+  totp_code,
+}: {
+  pre_auth_token: string;
+  totp_code: string;
+}): Promise<User> => {
+  const data = await apiPost<AuthResponse>('/api/auth/2fa/login', {
+    pre_auth_token,
+    totp_code,
+  });
+  await setAccessCookie(data.tokens.access);
   return toUser(data.user);
 };
 
-export const signUp = async ({ email, password, firstName, lastName, phone }: SignUpParams) => {
+export const signUp = async ({
+  email,
+  password,
+  firstName,
+  lastName,
+  phone,
+}: SignUpParams) => {
   const data = await apiPost<AuthResponse>('/api/auth/register', {
     email,
     password,
@@ -67,15 +116,7 @@ export const signUp = async ({ email, password, firstName, lastName, phone }: Si
     phone: phone ?? '',
   });
 
-  const jar = await cookies();
-  jar.set(TOKEN_COOKIE, data.tokens.access, {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60,
-  });
-
+  await setAccessCookie(data.tokens.access);
   return toUser(data.user);
 };
 

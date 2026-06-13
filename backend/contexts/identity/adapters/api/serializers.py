@@ -12,3 +12,13 @@ class RegisterSerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+
+
+class TwoFactorCodeSerializer(serializers.Serializer):
+    # Accepts a 6-digit TOTP code or a recovery code (e.g. A3B2-F1C9-2D8E-0F7A)
+    totp_code = serializers.CharField(max_length=20)
+
+
+class TwoFactorLoginSerializer(serializers.Serializer):
+    pre_auth_token = serializers.CharField()
+    totp_code = serializers.CharField(max_length=20)
