@@ -14,6 +14,7 @@ class UserModelManager(BaseUserManager):
         return user
 
     def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
         return self.create_user(email, password, **extra_fields)
 
 
@@ -25,6 +26,7 @@ class UserModel(AbstractBaseUser):
     phone = models.CharField(max_length=20, blank=True, default="")
     is_kyc_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     USERNAME_FIELD = "email"

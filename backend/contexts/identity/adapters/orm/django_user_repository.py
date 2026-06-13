@@ -8,16 +8,27 @@ from ...ports.user_repository import UserRepository
 
 class DjangoORMUserRepository(UserRepository):
     def save(self, user: User) -> User:
-        obj = UserModel(
-            id=uuid.UUID(user.id),
-            email=user.email,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            phone=user.phone,
-            is_kyc_verified=user.is_kyc_verified,
-        )
-        obj.password = user.password_hash
-        obj.save()
+        try:
+            obj = UserModel.objects.get(pk=uuid.UUID(user.id))
+            obj.email = user.email
+            obj.first_name = user.first_name
+            obj.last_name = user.last_name
+            obj.phone = user.phone
+            obj.is_kyc_verified = user.is_kyc_verified
+            if user.password_hash:
+                obj.password = user.password_hash
+            obj.save()
+        except UserModel.DoesNotExist:
+            obj = UserModel(
+                id=uuid.UUID(user.id),
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                phone=user.phone,
+                is_kyc_verified=user.is_kyc_verified,
+            )
+            obj.password = user.password_hash
+            obj.save()
         return self._to_entity(obj)
 
     def find_by_email(self, email: str) -> Optional[User]:

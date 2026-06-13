@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "contexts.identity",
+    "contexts.compliance",
 ]
 
 MIDDLEWARE = [
@@ -70,6 +71,11 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    "DEFAULT_PARSER_CLASSES": [
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.MultiPartParser",
+        "rest_framework.parsers.FormParser",
+    ],
 }
 
 SIMPLE_JWT = {
@@ -87,6 +93,13 @@ CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS", "http://localhost:3000"
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
+
+# MinIO
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "krypt_minio")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "krypt_minio_secret")
+MINIO_BUCKET_KYC = os.getenv("MINIO_BUCKET_KYC", "kyc-documents")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "False") == "True"
 
 LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"
