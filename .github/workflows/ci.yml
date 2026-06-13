@@ -27,7 +27,8 @@ jobs:
         run: pip install flake8
 
       - name: flake8 — backend
-        run: flake8 backend/config backend/identite backend/conformite --max-line-length=119
+        run: flake8 . --exclude=venv,.venv,migrations --max-line-length=119
+        working-directory: backend
 
       # ── Node / ESLint ─────────────────────────
       - name: Set up Node.js 20
