@@ -27,7 +27,7 @@ jobs:
         run: pip install flake8
 
       - name: flake8 — backend
-        run: flake8 backend/
+        run: flake8 backend/ --exclude=backend/venv,migrations
 
       # ── Node / ESLint ─────────────────────────
       - name: Set up Node.js 20
