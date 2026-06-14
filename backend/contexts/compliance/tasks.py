@@ -25,3 +25,26 @@ def analyze_kyc_task(document_id: str) -> dict:
         "status": doc.status.value,
         "score": doc.analysis_score,
     }
+
+
+@shared_task(name="compliance.score_aml")
+def score_aml_task(transaction_data: dict) -> dict:
+    from .adapters.orm.django_aml_repository import DjangoORMAMLRepository
+    from .adapters.services.mock_sanctions_checker import MockSanctionsChecker
+    from .adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+    from .use_cases.score_aml import ScoreAMLInput, ScoreAMLUseCase
+
+    use_case = ScoreAMLUseCase(
+        scorer=MockXGBoostScorer(),
+        sanctions_checker=MockSanctionsChecker(),
+        aml_repo=DjangoORMAMLRepository(),
+    )
+    result = use_case.execute(ScoreAMLInput(**transaction_data))
+
+    return {
+        "transfer_id": result.transfer_id,
+        "decision": result.combined_decision.value,
+        "xgboost_score": result.xgboost_score,
+        "ofac_match": result.ofac_match,
+        "audit_hash": result.audit_hash,
+    }

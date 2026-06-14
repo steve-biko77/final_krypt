@@ -10,6 +10,8 @@ KYC_SUBMIT_URL = '/api/kyc/submit'
 KYC_STATUS_URL = '/api/kyc/status'
 KYC_REVIEW_URL = '/api/kyc/review/{}'
 KYC_ADMIN_LIST_URL = '/api/kyc/admin/list'
+AML_SCORE_URL = '/api/aml/score'
+AML_RESULT_URL = '/api/aml/result/{}'
 
 _USER = {
     'email': 'kyc@krypt.fr',
@@ -277,3 +279,118 @@ class AdminReviewTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('error', res.data)
+
+
+# ---------------------------------------------------------------------------
+# KRYP-22 : AML pipeline (XGBoost + OFAC) tests
+# ---------------------------------------------------------------------------
+
+_AML_USER = {
+    'email': 'aml@krypt.fr',
+    'password': 'Secur3Pass!',
+    'first_name': 'Alice',
+    'last_name': 'Dupont',
+    'phone': '+33612000001',
+}
+
+# Name from MockSanctionsChecker hardcoded list
+_OFAC_NAME = "Viktor Petrov Rosneft"
+
+_BASE_AML_PAYLOAD = {
+    'beneficiary_name': 'Jean Martin',
+    'beneficiary_country': 'FR',
+    'transfer_id': '',  # set per-test
+}
+
+
+def _register_and_verify_kyc(client):
+    """Register a user and force-set is_kyc_verified=True for AML tests."""
+    res = client.post(REGISTER_URL, _AML_USER, format='json')
+    access = res.data['tokens']['access']
+    user_id = res.data['user']['id']
+
+    from contexts.identity.models import UserModel
+    UserModel.objects.filter(pk=user_id).update(is_kyc_verified=True)
+
+    return access, user_id
+
+
+class AMLScoringTests(APITestCase):
+
+    def setUp(self):
+        self.access, self.user_id = _register_and_verify_kyc(self.client)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _score(self, amount, name=None, country='FR', transfer_id='test-transfer'):
+        payload = {
+            'amount': amount,
+            'beneficiary_name': name or 'Jean Martin',
+            'beneficiary_country': country,
+            'transfer_id': transfer_id,
+        }
+        return self.client.post(AML_SCORE_URL, payload, format='json')
+
+    def test_aml_low_risk(self):
+        """Montant 50 EUR, nom sans risque → AUTO_APPROVED, score < 0.3."""
+        res = self._score(50, transfer_id='t-low-risk')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'AUTO_APPROVED')
+        self.assertLess(res.data['xgboost_score'], 0.3)
+        self.assertFalse(res.data['ofac_match'])
+
+    def test_aml_medium_risk(self):
+        """Montant 2000 EUR, pays à risque → PENDING_REVIEW, score 0.3-0.7."""
+        res = self._score(2000, country='KP', transfer_id='t-medium-risk')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'PENDING_REVIEW')
+        self.assertGreaterEqual(res.data['xgboost_score'], 0.3)
+        self.assertLessEqual(res.data['xgboost_score'], 0.7)
+
+    def test_aml_high_risk(self):
+        """Montant 4000 EUR → AUTO_BLOCKED, score > 0.7."""
+        res = self._score(4000, transfer_id='t-high-risk')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'AUTO_BLOCKED')
+        self.assertGreater(res.data['xgboost_score'], 0.7)
+
+    def test_aml_ofac_match(self):
+        """Nom sanctionné (OFAC list) → HARD_BLOCK, ofac_match=True."""
+        res = self._score(50, name=_OFAC_NAME, transfer_id='t-ofac-match')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'HARD_BLOCK')
+        self.assertTrue(res.data['ofac_match'])
+
+    def test_aml_parallel_execution(self):
+        """Les deux services (XGBoost + OFAC) sont appelés lors du scoring."""
+        from contexts.compliance.adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+        from contexts.compliance.adapters.services.mock_sanctions_checker import MockSanctionsChecker
+        from contexts.compliance.ports.aml_scoring_service import AMLScore
+        from contexts.compliance.ports.sanctions_check_service import SanctionsResult
+
+        with patch.object(MockXGBoostScorer, 'score', return_value=AMLScore(xgboost_score=0.15)) as mock_xgb, \
+             patch.object(MockSanctionsChecker, 'check', return_value=SanctionsResult(is_match=False)) as mock_ofac:
+            res = self._score(50, transfer_id='t-parallel')
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+            mock_xgb.assert_called_once()
+            mock_ofac.assert_called_once()
+
+    def test_aml_result_saved(self):
+        """Après scoring, AMLResultModel existe en BDD."""
+        transfer_id = 't-result-saved'
+        res = self._score(50, transfer_id=transfer_id)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(res.data.get('audit_hash'))
+
+        from contexts.compliance.models import AMLResultModel
+        self.assertTrue(AMLResultModel.objects.filter(transfer_id=transfer_id).exists())
+        obj = AMLResultModel.objects.get(transfer_id=transfer_id)
+        self.assertEqual(obj.combined_decision, 'AUTO_APPROVED')
+        self.assertIsNotNone(obj.audit_hash)
+
+    def test_aml_kyc_invalid(self):
+        """Utilisateur sans KYC validé → 403 KYC_INVALID."""
+        from contexts.identity.models import UserModel
+        UserModel.objects.filter(pk=self.user_id).update(is_kyc_verified=False)
+        res = self._score(50, transfer_id='t-no-kyc')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data['error'], 'KYC_INVALID')
