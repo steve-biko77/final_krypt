@@ -15,4 +15,5 @@ class User:
     is_kyc_verified: bool = False
     is_2fa_enabled: bool = False
     totp_secret: str = ""
+    is_staff: bool = False
     created_at: Optional[datetime] = None

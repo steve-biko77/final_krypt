@@ -27,6 +27,7 @@ declare type User = {
   phone: string;
   is_kyc_verified: boolean;
   is_2fa_enabled: boolean;
+  is_staff: boolean;
   name: string;
   // legacy compat fields
   userId: string;

@@ -5,6 +5,8 @@ from ..domain.exceptions import KYCAlreadyApprovedError
 from ..ports.kyc_repository import KYCDocumentRepository
 from ..ports.storage_service import StorageService
 
+_APPROVED_STATUSES = {KYCStatus.APPROVED, KYCStatus.APPROVED_MANUAL}
+
 
 @dataclass
 class SubmitKYCInput:
@@ -22,7 +24,7 @@ class SubmitKYCUseCase:
 
     def execute(self, data: SubmitKYCInput) -> KYCDocument:
         existing = self._kyc_repo.find_latest_by_user_id(data.user_id)
-        if existing and existing.status == KYCStatus.APPROVED:
+        if existing and existing.status in _APPROVED_STATUSES:
             raise KYCAlreadyApprovedError("KYC already approved for this user")
 
         file_path = self._storage.upload_file(

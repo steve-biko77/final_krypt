@@ -12,11 +12,13 @@ class DocumentType(str, Enum):
 
 
 class KYCStatus(str, Enum):
-    PENDING = "PENDING"
-    ANALYZING = "ANALYZING"
-    APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
-    PENDING_REVIEW = "PENDING_REVIEW"
+    SUBMITTED = "SUBMITTED"             # Soumis, avant analyse IA
+    ANALYZING = "ANALYZING"             # Analyse IA en cours
+    APPROVED = "APPROVED"               # Validé automatiquement (score >= seuil)
+    PENDING_REVIEW = "PENDING_REVIEW"   # Validation manuelle requise (score < seuil)
+    APPROVED_MANUAL = "APPROVED_MANUAL" # Validé manuellement par un admin
+    COMPLEMENT_REQUESTED = "COMPLEMENT_REQUESTED"  # Complément de documents demandé
+    REJECTED = "REJECTED"               # Rejeté par un admin
 
 
 @dataclass

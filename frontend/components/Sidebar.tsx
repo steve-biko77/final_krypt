@@ -10,6 +10,10 @@ import Footer from './Footer'
 const Sidebar = ({ user }: SiderbarProps) => {
   const pathname = usePathname()
 
+  const visibleLinks = sidebarLinks.filter(
+    (item) => !item.adminOnly || user.is_staff,
+  )
+
   return (
     <section className='sidebar'>
       <nav className='flex flex-col gap-4'>
@@ -24,7 +28,7 @@ const Sidebar = ({ user }: SiderbarProps) => {
           <h1 className='sidebar-logo'>Krypt</h1>
         </Link>
 
-        {sidebarLinks.map((item) => {
+        {visibleLinks.map((item) => {
           const isActive =
             pathname === item.route || pathname.startsWith(`${item.route}/`)
 

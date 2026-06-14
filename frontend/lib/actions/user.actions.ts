@@ -13,6 +13,7 @@ interface DjangoUser {
   phone: string;
   is_kyc_verified: boolean;
   is_2fa_enabled: boolean;
+  is_staff: boolean;
   created_at: string | null;
 }
 
@@ -40,6 +41,7 @@ function toUser(u: DjangoUser): User {
     phone: u.phone,
     is_kyc_verified: u.is_kyc_verified,
     is_2fa_enabled: u.is_2fa_enabled,
+    is_staff: u.is_staff ?? false,
     name: `${u.first_name} ${u.last_name}`,
     // legacy compat — keep so existing components don't crash
     userId: u.id,

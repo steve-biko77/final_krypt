@@ -6,7 +6,8 @@ from ..domain.entities import KYCDocument, KYCStatus
 from ..domain.exceptions import KYCDocumentNotFoundError, KYCInvalidStatusTransitionError
 from ..ports.kyc_repository import KYCDocumentRepository
 
-_REVIEWABLE_STATUSES = {KYCStatus.PENDING, KYCStatus.PENDING_REVIEW, KYCStatus.ANALYZING}
+_REVIEWABLE_STATUSES = {KYCStatus.PENDING_REVIEW, KYCStatus.ANALYZING}
+_ALLOWED_DECISIONS = {KYCStatus.APPROVED_MANUAL, KYCStatus.COMPLEMENT_REQUESTED, KYCStatus.REJECTED}
 
 
 @dataclass
@@ -31,8 +32,15 @@ class ReviewKYCUseCase:
                 f"Cannot review document with status {doc.status.value}"
             )
 
-        if data.new_status not in (KYCStatus.APPROVED, KYCStatus.REJECTED):
-            raise KYCInvalidStatusTransitionError("Status must be APPROVED or REJECTED")
+        if data.new_status not in _ALLOWED_DECISIONS:
+            raise KYCInvalidStatusTransitionError(
+                "Decision must be APPROVED, COMPLEMENT_REQUESTED or REJECTED"
+            )
+
+        if data.new_status == KYCStatus.REJECTED and not (data.comment or "").strip():
+            raise KYCInvalidStatusTransitionError(
+                "A comment is required when rejecting a document"
+            )
 
         doc.status = data.new_status
         doc.reviewed_at = datetime.now(timezone.utc)

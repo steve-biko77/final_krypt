@@ -11,11 +11,13 @@ class DocumentType(models.TextChoices):
 
 
 class KYCStatus(models.TextChoices):
-    PENDING = "PENDING", "En attente"
+    SUBMITTED = "SUBMITTED", "Soumis"
     ANALYZING = "ANALYZING", "En analyse IA"
-    APPROVED = "APPROVED", "Approuvé"
+    APPROVED = "APPROVED", "Validé (IA)"
+    PENDING_REVIEW = "PENDING_REVIEW", "Validation manuelle requise"
+    APPROVED_MANUAL = "APPROVED_MANUAL", "Validé manuellement"
+    COMPLEMENT_REQUESTED = "COMPLEMENT_REQUESTED", "Complément demandé"
     REJECTED = "REJECTED", "Rejeté"
-    PENDING_REVIEW = "PENDING_REVIEW", "Révision manuelle requise"
 
 
 class KYCDocumentModel(models.Model):
@@ -28,7 +30,7 @@ class KYCDocumentModel(models.Model):
     document_type = models.CharField(max_length=20, choices=DocumentType.choices)
     file_path = models.CharField(max_length=500)
     status = models.CharField(
-        max_length=16, choices=KYCStatus.choices, default=KYCStatus.ANALYZING
+        max_length=24, choices=KYCStatus.choices, default=KYCStatus.ANALYZING
     )
     submitted_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)

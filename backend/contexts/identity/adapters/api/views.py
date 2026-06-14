@@ -53,6 +53,7 @@ def _user_to_dict(user: User) -> dict:
         "phone": user.phone,
         "is_kyc_verified": user.is_kyc_verified,
         "is_2fa_enabled": user.is_2fa_enabled,
+        "is_staff": user.is_staff,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 

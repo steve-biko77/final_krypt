@@ -11,5 +11,7 @@ class KYCSubmitSerializer(serializers.Serializer):
 
 
 class KYCReviewSerializer(serializers.Serializer):
-    decision = serializers.ChoiceField(choices=["APPROVED", "REJECTED"])
+    decision = serializers.ChoiceField(
+        choices=["APPROVED", "COMPLEMENT_REQUESTED", "REJECTED"]
+    )
     comment = serializers.CharField(required=False, allow_blank=True, default="")

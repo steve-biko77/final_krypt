@@ -3,26 +3,37 @@ export const sidebarLinks = [
     imgURL: "/icons/home.svg",
     route: "/",
     label: "Accueil",
+    adminOnly: false,
   },
   {
     imgURL: "/icons/money-send.svg",
     route: "/payment-transfer",
     label: "Envoyer des fonds",
+    adminOnly: false,
   },
   {
     imgURL: "/icons/transaction.svg",
     route: "/transaction-history",
     label: "Historique",
+    adminOnly: false,
   },
   {
     imgURL: "/icons/credit-card.svg",
     route: "/kyc",
     label: "Vérification KYC",
+    adminOnly: false,
   },
   {
     imgURL: "/icons/edit.svg",
     route: "/security",
     label: "Sécurité",
+    adminOnly: false,
+  },
+  {
+    imgURL: "/icons/monitor.svg",
+    route: "/admin/kyc",
+    label: "Admin KYC",
+    adminOnly: true,
   },
 ];
 

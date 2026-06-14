@@ -12,10 +12,19 @@ from ...domain.exceptions import (
     KYCDocumentNotFoundError,
     KYCInvalidStatusTransitionError,
 )
+from ...models import KYCDocumentModel
 from ...use_cases.get_kyc_status import GetKYCStatusUseCase
 from ...use_cases.review_kyc import ReviewKYCInput, ReviewKYCUseCase
 from ...use_cases.submit_kyc import SubmitKYCInput, SubmitKYCUseCase
 from .serializers import KYCReviewSerializer, KYCSubmitSerializer
+
+_DECISION_TO_STATUS = {
+    "APPROVED": KYCStatus.APPROVED_MANUAL,
+    "COMPLEMENT_REQUESTED": KYCStatus.COMPLEMENT_REQUESTED,
+    "REJECTED": KYCStatus.REJECTED,
+}
+
+_APPROVED_STATUSES = {KYCStatus.APPROVED, KYCStatus.APPROVED_MANUAL}
 
 
 def _doc_to_dict(doc: KYCDocument) -> dict:
@@ -62,7 +71,6 @@ class KYCSubmitView(APIView):
         except RuntimeError as e:
             return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        # Dispatch async IA analysis — import here to avoid circular import at module load
         from contexts.compliance.tasks import analyze_kyc_task
         analyze_kyc_task.delay(str(doc.id))
 
@@ -92,14 +100,23 @@ class KYCReviewView(APIView):
         serializer = KYCReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        decision = serializer.validated_data["decision"]
+        comment = serializer.validated_data.get("comment", "")
+
+        if decision == "REJECTED" and not comment.strip():
+            return Response(
+                {"error": "Un commentaire est obligatoire pour rejeter un dossier"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         use_case = ReviewKYCUseCase(kyc_repo=DjangoORMKYCRepository())
         try:
             doc = use_case.execute(
                 ReviewKYCInput(
                     document_id=doc_id,
-                    new_status=KYCStatus(serializer.validated_data["decision"]),
+                    new_status=_DECISION_TO_STATUS[decision],
                     reviewed_by_id=str(request.user.pk),
-                    comment=serializer.validated_data.get("comment", ""),
+                    comment=comment,
                 )
             )
         except KYCDocumentNotFoundError:
@@ -107,10 +124,39 @@ class KYCReviewView(APIView):
         except KYCInvalidStatusTransitionError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Cross-context: sync user's is_kyc_verified flag
         from contexts.identity.models import UserModel
-        UserModel.objects.filter(pk=doc.user_id).update(
-            is_kyc_verified=(doc.status == KYCStatus.APPROVED)
-        )
+        if doc.status == KYCStatus.APPROVED_MANUAL:
+            UserModel.objects.filter(pk=doc.user_id).update(is_kyc_verified=True)
+        elif doc.status == KYCStatus.REJECTED:
+            UserModel.objects.filter(pk=doc.user_id).update(is_kyc_verified=False)
+        # COMPLEMENT_REQUESTED: is_kyc_verified unchanged
 
         return Response(_doc_to_dict(doc), status=status.HTTP_200_OK)
+
+
+class KYCAdminListView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = KYCDocumentModel.objects.select_related('user').order_by('-submitted_at')
+
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        results = [
+            {
+                "id": str(obj.pk),
+                "user_email": obj.user.email,
+                "user_name": f"{obj.user.first_name} {obj.user.last_name}",
+                "document_type": obj.document_type,
+                "status": obj.status,
+                "analysis_score": obj.analysis_score,
+                "review_comment": obj.review_comment,
+                "submitted_at": obj.submitted_at.isoformat() if obj.submitted_at else None,
+                "reviewed_at": obj.reviewed_at.isoformat() if obj.reviewed_at else None,
+            }
+            for obj in qs
+        ]
+
+        return Response({"count": len(results), "results": results})
