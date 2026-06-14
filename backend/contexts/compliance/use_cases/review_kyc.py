@@ -1,15 +1,20 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Optional
 
 from ..domain.entities import KYCDocument, KYCStatus
 from ..domain.exceptions import KYCDocumentNotFoundError, KYCInvalidStatusTransitionError
 from ..ports.kyc_repository import KYCDocumentRepository
+
+_REVIEWABLE_STATUSES = {KYCStatus.PENDING, KYCStatus.PENDING_REVIEW, KYCStatus.ANALYZING}
 
 
 @dataclass
 class ReviewKYCInput:
     document_id: str
     new_status: KYCStatus
+    reviewed_by_id: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class ReviewKYCUseCase:
@@ -21,7 +26,7 @@ class ReviewKYCUseCase:
         if not doc:
             raise KYCDocumentNotFoundError(f"Document {data.document_id} not found")
 
-        if doc.status != KYCStatus.PENDING:
+        if doc.status not in _REVIEWABLE_STATUSES:
             raise KYCInvalidStatusTransitionError(
                 f"Cannot review document with status {doc.status.value}"
             )
@@ -31,5 +36,7 @@ class ReviewKYCUseCase:
 
         doc.status = data.new_status
         doc.reviewed_at = datetime.now(timezone.utc)
+        doc.reviewed_by_id = data.reviewed_by_id
+        doc.review_comment = data.comment
 
         return self._kyc_repo.save(doc)

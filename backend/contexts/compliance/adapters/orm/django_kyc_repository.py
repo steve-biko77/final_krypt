@@ -14,6 +14,11 @@ class DjangoORMKYCRepository(KYCDocumentRepository):
             obj.file_path = doc.file_path
             obj.status = doc.status.value
             obj.reviewed_at = doc.reviewed_at
+            obj.analysis_score = doc.analysis_score
+            obj.analysis_details = doc.analysis_details
+            obj.review_comment = doc.review_comment
+            if doc.reviewed_by_id:
+                obj.reviewed_by_id = uuid.UUID(doc.reviewed_by_id)
             obj.save()
         except KYCDocumentModel.DoesNotExist:
             obj = KYCDocumentModel(
@@ -22,7 +27,12 @@ class DjangoORMKYCRepository(KYCDocumentRepository):
                 document_type=doc.document_type.value,
                 file_path=doc.file_path,
                 status=doc.status.value,
+                analysis_score=doc.analysis_score,
+                analysis_details=doc.analysis_details,
+                review_comment=doc.review_comment,
             )
+            if doc.reviewed_by_id:
+                obj.reviewed_by_id = uuid.UUID(doc.reviewed_by_id)
             obj.save()
         return self._to_entity(obj)
 
@@ -51,4 +61,8 @@ class DjangoORMKYCRepository(KYCDocumentRepository):
             status=KYCStatus(obj.status),
             submitted_at=obj.submitted_at,
             reviewed_at=obj.reviewed_at,
+            analysis_score=obj.analysis_score,
+            analysis_details=obj.analysis_details,
+            reviewed_by_id=str(obj.reviewed_by_id) if obj.reviewed_by_id else None,
+            review_comment=obj.review_comment,
         )

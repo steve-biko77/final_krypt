@@ -36,6 +36,6 @@ class SubmitKYCUseCase:
             user_id=data.user_id,
             document_type=data.document_type,
             file_path=file_path,
-            status=KYCStatus.PENDING,
+            status=KYCStatus.ANALYZING,
         )
         return self._kyc_repo.save(doc)

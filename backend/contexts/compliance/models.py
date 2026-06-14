@@ -12,8 +12,10 @@ class DocumentType(models.TextChoices):
 
 class KYCStatus(models.TextChoices):
     PENDING = "PENDING", "En attente"
+    ANALYZING = "ANALYZING", "En analyse IA"
     APPROVED = "APPROVED", "Approuvé"
     REJECTED = "REJECTED", "Rejeté"
+    PENDING_REVIEW = "PENDING_REVIEW", "Révision manuelle requise"
 
 
 class KYCDocumentModel(models.Model):
@@ -26,10 +28,24 @@ class KYCDocumentModel(models.Model):
     document_type = models.CharField(max_length=20, choices=DocumentType.choices)
     file_path = models.CharField(max_length=500)
     status = models.CharField(
-        max_length=10, choices=KYCStatus.choices, default=KYCStatus.PENDING
+        max_length=16, choices=KYCStatus.choices, default=KYCStatus.ANALYZING
     )
     submitted_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # IA analysis
+    analysis_score = models.FloatField(null=True, blank=True)
+    analysis_details = models.JSONField(null=True, blank=True)
+
+    # Admin review
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_kyc_documents",
+    )
+    review_comment = models.TextField(null=True, blank=True)
 
     class Meta:
         app_label = "compliance"

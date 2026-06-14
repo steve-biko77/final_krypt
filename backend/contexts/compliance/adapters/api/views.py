@@ -1,6 +1,6 @@
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,7 +15,6 @@ from ...domain.exceptions import (
 from ...use_cases.get_kyc_status import GetKYCStatusUseCase
 from ...use_cases.review_kyc import ReviewKYCInput, ReviewKYCUseCase
 from ...use_cases.submit_kyc import SubmitKYCInput, SubmitKYCUseCase
-from .permissions import IsStaffUser
 from .serializers import KYCReviewSerializer, KYCSubmitSerializer
 
 
@@ -25,6 +24,8 @@ def _doc_to_dict(doc: KYCDocument) -> dict:
         "document_type": doc.document_type.value,
         "status": doc.status.value,
         "file_path": doc.file_path,
+        "analysis_score": doc.analysis_score,
+        "review_comment": doc.review_comment,
         "submitted_at": doc.submitted_at.isoformat() if doc.submitted_at else None,
         "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
     }
@@ -61,6 +62,10 @@ class KYCSubmitView(APIView):
         except RuntimeError as e:
             return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        # Dispatch async IA analysis — import here to avoid circular import at module load
+        from contexts.compliance.tasks import analyze_kyc_task
+        analyze_kyc_task.delay(str(doc.id))
+
         return Response(_doc_to_dict(doc), status=status.HTTP_201_CREATED)
 
 
@@ -81,7 +86,7 @@ class KYCStatusView(APIView):
 
 
 class KYCReviewView(APIView):
-    permission_classes = [IsStaffUser]
+    permission_classes = [IsAdminUser]
 
     def patch(self, request, doc_id):
         serializer = KYCReviewSerializer(data=request.data)
@@ -92,7 +97,9 @@ class KYCReviewView(APIView):
             doc = use_case.execute(
                 ReviewKYCInput(
                     document_id=doc_id,
-                    new_status=KYCStatus(serializer.validated_data["status"]),
+                    new_status=KYCStatus(serializer.validated_data["decision"]),
+                    reviewed_by_id=str(request.user.pk),
+                    comment=serializer.validated_data.get("comment", ""),
                 )
             )
         except KYCDocumentNotFoundError:
