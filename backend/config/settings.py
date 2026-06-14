@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "contexts.identity",
     "contexts.compliance",
+    "contexts.transfer",
 ]
 
 MIDDLEWARE = [

@@ -7,6 +7,12 @@ export const sidebarLinks = [
   },
   {
     imgURL: "/icons/money-send.svg",
+    route: "/transfer",
+    label: "Envoyer de l'argent",
+    adminOnly: false,
+  },
+  {
+    imgURL: "/icons/money-send.svg",
     route: "/payment-transfer",
     label: "Envoyer des fonds",
     adminOnly: false,
