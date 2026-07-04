@@ -1,10 +1,15 @@
+import uuid
 from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
+import stripe
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 REGISTER_URL = '/api/auth/register'
 SIMULATE_URL = '/api/transfer/simulate'
+INITIATE_URL = '/api/transfer/initiate'
+WEBHOOK_URL = '/api/transfer/stripe/webhook'
 
 _USER = {
     'email': 'transfer@krypt.fr',
@@ -69,3 +74,152 @@ class SimulateTransferTests(APITestCase):
         self.client.credentials()
         res = self.client.get(f'{SIMULATE_URL}?amount=100')
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-21 : initiation transfert avec Stripe Payment Intent (AML avant Stripe)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _mock_intent(intent_id='pi_test_123', client_secret='pi_test_123_secret_abc'):
+    intent = MagicMock()
+    intent.id = intent_id
+    intent.client_secret = client_secret
+    return intent
+
+
+class InitiateTransferTests(APITestCase):
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _payload(self, amount, country='CM', name='Jean Mbarga'):
+        return {
+            'beneficiary_name': name,
+            'beneficiary_country': country,
+            'momo_number': '+237699000002',
+            'operator': 'MTN_MOMO',
+            'amount_eur': str(amount),
+        }
+
+    @patch('stripe.PaymentIntent.create')
+    def test_initiate_transfer_success_low_risk(self, mock_create):
+        """Faible montant → AML AUTO_APPROVED, Stripe appelé, 201 PROCESSING."""
+        mock_create.return_value = _mock_intent()
+        res = self.client.post(INITIATE_URL, self._payload(50), format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['status'], 'PROCESSING')
+        self.assertEqual(res.data['client_secret'], 'pi_test_123_secret_abc')
+        self.assertIn('transaction_id', res.data)
+        mock_create.assert_called_once()
+        # Stripe reçoit le montant en centimes.
+        self.assertEqual(mock_create.call_args.kwargs['amount'], 5000)
+        self.assertEqual(mock_create.call_args.kwargs['currency'], 'eur')
+
+    @patch('stripe.PaymentIntent.create')
+    def test_initiate_transfer_pending_review(self, mock_create):
+        """Montant moyen + pays à risque → AML PENDING_REVIEW, Stripe NON appelé, 202."""
+        res = self.client.post(
+            INITIATE_URL, self._payload(2000, country='SY'), format='json'
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(res.data['status'], 'AML_PENDING_REVIEW')
+        mock_create.assert_not_called()
+
+    @patch('stripe.PaymentIntent.create')
+    def test_initiate_transfer_blocked(self, mock_create):
+        """Montant élevé → AML AUTO_BLOCKED, Stripe NON appelé, 403 AML_BLOCKED."""
+        res = self.client.post(INITIATE_URL, self._payload(4000), format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data['error'], 'AML_BLOCKED')
+        mock_create.assert_not_called()
+
+    @patch('stripe.PaymentIntent.create')
+    def test_initiate_transfer_no_kyc(self, mock_create):
+        """KYC non validé → 403 KYC_NOT_VERIFIED, avant tout scoring / Stripe."""
+        _set_kyc_verified(self.user_id, verified=False)
+        res = self.client.post(INITIATE_URL, self._payload(50), format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data['error'], 'KYC_NOT_VERIFIED')
+        mock_create.assert_not_called()
+
+
+class StripeWebhookTests(APITestCase):
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        # Le webhook Stripe n'est pas authentifié JWT.
+        self.client = APIClient()
+
+    def _create_transaction(self, intent_id='pi_hook_1', status_value='PROCESSING'):
+        from contexts.transfer.models import TransactionModel
+        return TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32309.00'),
+            status=status_value,
+            stripe_payment_intent_id=intent_id,
+        )
+
+    @patch('stripe.Webhook.construct_event')
+    def test_stripe_webhook_payment_succeeded(self, mock_construct):
+        """payment_intent.succeeded → transaction passe à ESCROWED."""
+        txn = self._create_transaction(intent_id='pi_hook_success')
+        mock_construct.return_value = {
+            'type': 'payment_intent.succeeded',
+            'data': {'object': {'id': 'pi_hook_success'}},
+        }
+        res = self.client.post(
+            WEBHOOK_URL, {}, format='json', HTTP_STRIPE_SIGNATURE='sig'
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['received'])
+        from contexts.transfer.models import TransactionModel
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROWED')
+
+    @patch('stripe.Webhook.construct_event')
+    def test_stripe_webhook_invalid_signature(self, mock_construct):
+        """Signature invalide → 400."""
+        mock_construct.side_effect = stripe.error.SignatureVerificationError(
+            'Invalid signature', 'sig'
+        )
+        res = self.client.post(
+            WEBHOOK_URL, {}, format='json', HTTP_STRIPE_SIGNATURE='bad'
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class StripePaymentServiceTests(APITestCase):
+
+    @patch('stripe.PaymentIntent.create')
+    def test_stripe_payment_service_mock(self, mock_create):
+        """create_payment_intent → montant en centimes + PaymentIntentResult correct."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        mock_create.return_value = _mock_intent(
+            intent_id='pi_unit', client_secret='pi_unit_secret'
+        )
+        service = StripePaymentService()
+        result = service.create_payment_intent(Decimal('100.00'), 'txn-abc')
+
+        mock_create.assert_called_once()
+        kwargs = mock_create.call_args.kwargs
+        self.assertEqual(kwargs['amount'], 10000)  # 100 EUR → 10000 cents
+        self.assertEqual(kwargs['currency'], 'eur')
+        self.assertEqual(kwargs['metadata'], {'transaction_id': 'txn-abc'})
+        self.assertEqual(result.payment_intent_id, 'pi_unit')
+        self.assertEqual(result.client_secret, 'pi_unit_secret')

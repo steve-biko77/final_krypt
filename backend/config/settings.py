@@ -102,6 +102,10 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "krypt_minio_secret")
 MINIO_BUCKET_KYC = os.getenv("MINIO_BUCKET_KYC", "kyc-documents")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "False") == "True"
 
+# Stripe
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
 # Celery
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")

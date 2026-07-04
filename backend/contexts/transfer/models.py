@@ -1,0 +1,55 @@
+import uuid
+
+from django.conf import settings
+from django.db import models
+
+
+class Operator(models.TextChoices):
+    MTN_MOMO = "MTN_MOMO", "MTN Mobile Money"
+    ORANGE_MONEY = "ORANGE_MONEY", "Orange Money"
+
+
+class TransactionStatus(models.TextChoices):
+    DRAFT = "DRAFT", "Brouillon"
+    PENDING_AML = "PENDING_AML", "En attente scoring AML"
+    AML_BLOCKED = "AML_BLOCKED", "Bloqué par AML"
+    AML_PENDING_REVIEW = "AML_PENDING_REVIEW", "Révision AML requise"
+    PROCESSING = "PROCESSING", "Paiement en cours"
+    ESCROWED = "ESCROWED", "Fonds sécurisés (escrow)"
+    DELIVERED = "DELIVERED", "Livré"
+    PAYMENT_FAILED = "PAYMENT_FAILED", "Paiement échoué"
+
+
+class TransactionModel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="transactions",
+    )
+    beneficiary_name = models.CharField(max_length=200)
+    beneficiary_country = models.CharField(max_length=2)
+    momo_number = models.CharField(max_length=30)
+    operator = models.CharField(max_length=20, choices=Operator.choices)
+    amount_eur = models.DecimalField(max_digits=10, decimal_places=2)
+    fees_eur = models.DecimalField(max_digits=10, decimal_places=2)
+    amount_xaf = models.DecimalField(max_digits=14, decimal_places=2)
+    status = models.CharField(
+        max_length=24,
+        choices=TransactionStatus.choices,
+        default=TransactionStatus.DRAFT,
+    )
+    aml_result_id = models.CharField(max_length=100, null=True, blank=True)
+    stripe_payment_intent_id = models.CharField(
+        max_length=255, null=True, blank=True, db_index=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "transfer"
+        db_table = "transfer_transactions"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Transaction({self.id}, {self.status}, {self.amount_eur} EUR)"
