@@ -1,3 +1,4 @@
+import uuid
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
@@ -556,3 +557,86 @@ class ApplyBusinessRulesTests(APITestCase):
         # Opérateur vide (endpoint standalone) → RULE 3 ignorée sans erreur
         res = self._run(amount=100, beneficiary_country='ZZ', operator='')
         self.assertEqual(res.triggered_rules, [])
+
+
+# ---------------------------------------------------------------------------
+# KRYP-23 : couverture ciblée — tasks, scorer_factory, AMLResultView 404/403
+# ---------------------------------------------------------------------------
+
+class ScoreAMLTaskTests(APITestCase):
+    """Chemin d'erreur de la tâche Celery score_aml_task (observabilité)."""
+
+    def test_aml_task_handles_scoring_exception(self):
+        from contexts.compliance import tasks
+        from contexts.compliance.use_cases.score_aml import ScoreAMLUseCase
+
+        payload = {
+            'user_id': str(uuid.uuid4()),
+            'amount': 50,
+            'beneficiary_name': 'Jean Martin',
+            'beneficiary_country': 'FR',
+            'transfer_id': 't-task-error',
+        }
+        with patch.object(ScoreAMLUseCase, 'execute', side_effect=RuntimeError('scoring down')):
+            with self.assertLogs('contexts.compliance.tasks', level='ERROR') as logs:
+                with self.assertRaises(RuntimeError):
+                    tasks.score_aml_task(payload)
+        # L'exception est bien loggée avant de se propager (pas d'échec silencieux).
+        self.assertTrue(any('score_aml_task failed' in m for m in logs.output))
+
+
+class ScorerFactoryTests(APITestCase):
+    """Wiring du scorer AML selon settings.AML_SCORER_MODE."""
+
+    @override_settings(AML_SCORER_MODE='tag_ml')
+    def test_scorer_factory_returns_tag_ml_scorer_when_configured(self):
+        from contexts.compliance.adapters.services.scorer_factory import get_configured_scorer
+        from contexts.compliance.adapters.services.xgboost_tag_scorer import XGBoostTagScorer
+
+        scorer = get_configured_scorer()
+        self.assertIsInstance(scorer, XGBoostTagScorer)
+
+    def test_scorer_factory_returns_mock_by_default(self):
+        from contexts.compliance.adapters.services.scorer_factory import get_configured_scorer
+        from contexts.compliance.adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+
+        scorer = get_configured_scorer()
+        self.assertIsInstance(scorer, MockXGBoostScorer)
+
+
+class AMLResultViewTests(APITestCase):
+    """Couverture des branches 404 (introuvable) et 403 (autre utilisateur)."""
+
+    def setUp(self):
+        # Utilisateur A : possède un résultat AML.
+        self.access_a, self.user_a_id = _register_and_verify_kyc(self.client)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access_a}')
+        payload = {
+            'amount': 50,
+            'beneficiary_name': 'Jean Martin',
+            'beneficiary_country': 'FR',
+            'transfer_id': 't-aml-result-owned',
+        }
+        self.client.post(AML_SCORE_URL, payload, format='json')
+
+    def test_aml_result_not_found_returns_404(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access_a}')
+        res = self.client.get(AML_RESULT_URL.format('does-not-exist'))
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', res.data)
+
+    def test_aml_result_other_user_forbidden_returns_403(self):
+        # Utilisateur B (non staff) demande le résultat de A → 403.
+        user_b = {
+            'email': 'aml-b@krypt.fr',
+            'password': 'Secur3Pass!',
+            'first_name': 'Bob',
+            'last_name': 'Nkomo',
+            'phone': '+33612000099',
+        }
+        res_b = self.client.post(REGISTER_URL, user_b, format='json')
+        access_b = res_b.data['tokens']['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_b}')
+        res = self.client.get(AML_RESULT_URL.format('t-aml-result-owned'))
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('error', res.data)

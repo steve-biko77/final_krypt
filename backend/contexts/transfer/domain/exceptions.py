@@ -13,3 +13,9 @@ class TransferBlockedError(Exception):
     def __init__(self, reason: str = "Transfert non autorisé après vérification de conformité."):
         self.reason = reason
         super().__init__(reason)
+
+
+class PaymentServiceError(Exception):
+    """Raised when the payment provider (Stripe) fails. Wraps provider-specific
+    exceptions so they never leak past the hexagonal port boundary."""
+    pass

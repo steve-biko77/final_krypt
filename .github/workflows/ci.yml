@@ -5,6 +5,7 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+  workflow_dispatch:
 
 jobs:
   # ─────────────────────────────────────────────
@@ -113,6 +114,61 @@ jobs:
       - name: Frontend tests
         run: npm run --if-present test
         working-directory: frontend
+
+  # ─────────────────────────────────────────────
+  # Job — Tests d'intégration Stripe (sandbox réelle)
+  # Déclenché manuellement (workflow_dispatch) et uniquement si le secret existe.
+  # Hors du pipeline bloquant : n'est pas dans `needs:` du job build.
+  # ─────────────────────────────────────────────
+  integration-tests:
+    name: Integration tests (Stripe sandbox)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && secrets.STRIPE_SECRET_KEY != '' }}
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: krypt_test
+          POSTGRES_USER: krypt
+          POSTGRES_PASSWORD: krypt_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+        working-directory: backend
+
+      - name: Run Stripe integration tests
+        run: python -m pytest -m integration -v
+        working-directory: backend
+        env:
+          DEBUG: "True"
+          SECRET_KEY: ci-insecure-secret-key-for-testing-only
+          DB_NAME: krypt_test
+          DB_USER: krypt
+          DB_PASSWORD: krypt_secret
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: ci_minio_key
+          MINIO_SECRET_KEY: ci_minio_secret
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
 
   # ─────────────────────────────────────────────
   # Job 3 — Build Docker images

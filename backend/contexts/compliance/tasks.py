@@ -1,9 +1,13 @@
+import logging
+
 from celery import shared_task
 
 from .adapters.orm.django_kyc_repository import DjangoORMKYCRepository
 from .adapters.services.mock_kyc_analyzer import MockKYCAnalyzerService
 from .domain.entities import KYCStatus
 from .use_cases.analyze_kyc import AnalyzeKYCInput, AnalyzeKYCUseCase
+
+logger = logging.getLogger(__name__)
 
 _AUTO_APPROVED_STATUSES = {KYCStatus.APPROVED, KYCStatus.APPROVED_MANUAL}
 
@@ -29,17 +33,35 @@ def analyze_kyc_task(document_id: str) -> dict:
 
 @shared_task(name="compliance.score_aml")
 def score_aml_task(transaction_data: dict) -> dict:
+    from django.conf import settings
+
     from .adapters.orm.django_aml_repository import DjangoORMAMLRepository
+    from .adapters.orm.django_audit_queue_repository import DjangoAuditQueueRepository
+    from .adapters.services.django_transaction_history_service import (
+        DjangoTransactionHistoryService,
+    )
     from .adapters.services.mock_sanctions_checker import MockSanctionsChecker
-    from .adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+    from .adapters.services.scorer_factory import get_configured_scorer
     from .use_cases.score_aml import ScoreAMLInput, ScoreAMLUseCase
 
     use_case = ScoreAMLUseCase(
-        scorer=MockXGBoostScorer(),
+        scorer=get_configured_scorer(),
         sanctions_checker=MockSanctionsChecker(),
         aml_repo=DjangoORMAMLRepository(),
+        transaction_history=DjangoTransactionHistoryService(),
+        audit_queue=DjangoAuditQueueRepository(),
+        audit_sample_rate=settings.AML_AUDIT_SAMPLE_RATE,
     )
-    result = use_case.execute(ScoreAMLInput(**transaction_data))
+    try:
+        result = use_case.execute(ScoreAMLInput(**transaction_data))
+    except Exception:
+        # Observabilité du chemin d'erreur : on logge avant de laisser Celery
+        # voir la tâche comme échouée (sémantique de retry) — jamais d'échec silencieux.
+        logger.exception(
+            "score_aml_task failed for transfer_id=%s",
+            transaction_data.get("transfer_id"),
+        )
+        raise
 
     return {
         "transfer_id": result.transfer_id,

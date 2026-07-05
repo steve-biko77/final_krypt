@@ -20,7 +20,11 @@ from ...adapters.orm.django_transaction_repository import DjangoORMTransactionRe
 from ...adapters.services.fixed_exchange_rate import FixedExchangeRateService
 from ...adapters.services.stripe_payment_service import StripePaymentService
 from ...domain.entities import TransactionStatus
-from ...domain.exceptions import InvalidAmountError, TransferBlockedError
+from ...domain.exceptions import (
+    InvalidAmountError,
+    PaymentServiceError,
+    TransferBlockedError,
+)
 from ...use_cases.initiate_transfer import (
     InitiateTransferInput,
     InitiateTransferUseCase,
@@ -148,6 +152,13 @@ class InitiateTransferView(APIView):
             return Response(
                 {"error": "AML_BLOCKED", "reason": exc.reason},
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        except PaymentServiceError:
+            # Erreur du prestataire de paiement (Stripe) — réponse générique.
+            return Response(
+                {"error": "PAYMENT_SERVICE_ERROR",
+                 "detail": "Le service de paiement est temporairement indisponible."},
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         if result.client_secret is None:

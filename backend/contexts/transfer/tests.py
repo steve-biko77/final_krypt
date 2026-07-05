@@ -237,3 +237,77 @@ class StripePaymentServiceTests(APITestCase):
         self.assertEqual(kwargs['metadata'], {'transaction_id': 'txn-abc'})
         self.assertEqual(result.payment_intent_id, 'pi_unit')
         self.assertEqual(result.client_secret, 'pi_unit_secret')
+
+    @patch('stripe.PaymentIntent.create')
+    def test_stripe_service_handles_api_error(self, mock_create):
+        """Une StripeError est encapsulée en PaymentServiceError (frontière du port)."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        from contexts.transfer.domain.exceptions import PaymentServiceError
+
+        mock_create.side_effect = stripe.error.StripeError('boom')
+        service = StripePaymentService()
+        with self.assertRaises(PaymentServiceError):
+            service.create_payment_intent(Decimal('100.00'), 'txn-err')
+
+    @patch('stripe.PaymentIntent.retrieve')
+    def test_confirm_payment_succeeded(self, mock_retrieve):
+        """confirm_payment → True quand l'intent Stripe est 'succeeded'."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        intent = MagicMock()
+        intent.status = 'succeeded'
+        mock_retrieve.return_value = intent
+        self.assertTrue(StripePaymentService().confirm_payment('pi_ok'))
+
+    @patch('stripe.PaymentIntent.retrieve')
+    def test_confirm_payment_not_succeeded(self, mock_retrieve):
+        """confirm_payment → False quand l'intent n'est pas 'succeeded'."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        intent = MagicMock()
+        intent.status = 'requires_payment_method'
+        mock_retrieve.return_value = intent
+        self.assertFalse(StripePaymentService().confirm_payment('pi_pending'))
+
+    @patch('stripe.PaymentIntent.retrieve')
+    def test_confirm_payment_handles_api_error(self, mock_retrieve):
+        """confirm_payment encapsule une StripeError en PaymentServiceError."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        from contexts.transfer.domain.exceptions import PaymentServiceError
+
+        mock_retrieve.side_effect = stripe.error.StripeError('boom')
+        with self.assertRaises(PaymentServiceError):
+            StripePaymentService().confirm_payment('pi_err')
+
+
+class TransactionRepositoryTests(APITestCase):
+    """Tests unitaires directs du repository ORM — chemins d'erreur/absence."""
+
+    def test_find_by_id_invalid_uuid_returns_none(self):
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        repo = DjangoORMTransactionRepository()
+        # 'not-a-uuid' → uuid.UUID(...) lève ValueError → None
+        self.assertIsNone(repo.find_by_id('not-a-uuid'))
+
+    def test_find_by_id_unknown_uuid_returns_none(self):
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        repo = DjangoORMTransactionRepository()
+        # UUID valide mais aucune ligne → DoesNotExist → None
+        self.assertIsNone(repo.find_by_id(str(uuid.uuid4())))
+
+    def test_find_by_payment_intent_id_unknown_returns_none(self):
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        repo = DjangoORMTransactionRepository()
+        self.assertIsNone(repo.find_by_payment_intent_id('pi_does_not_exist'))
