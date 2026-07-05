@@ -1,0 +1,39 @@
+{
+  "description": "Modèle ablation : sans features de solde (amount, type_cash_out, hour_of_day uniquement)",
+  "f1": 0.03409660252677761,
+  "precision": 0.01743622413649835,
+  "recall": 0.7662811929397444,
+  "roc_auc": 0.8949353969648172,
+  "pr_auc": 0.3618858638952532,
+  "accuracy": 0.8712627372843731,
+  "confusion_matrix": [
+    [
+      481492,
+      70947
+    ],
+    [
+      384,
+      1259
+    ]
+  ],
+  "feature_importances": {
+    "type_cash_out": 0.5097785592079163,
+    "hour_of_day": 0.3226930499076843,
+    "amount": 0.16752834618091583
+  },
+  "inference_latency_ms": {
+    "mean": 1.5384214941877872,
+    "p95": 1.9959350582212207
+  },
+  "dataset_sizes": {
+    "train_total": 2216327,
+    "test_total": 554082,
+    "test_fraud": 1643,
+    "test_fraud_rate": 0.002965265069069199
+  },
+  "features": [
+    "amount",
+    "type_cash_out",
+    "hour_of_day"
+  ]
+}

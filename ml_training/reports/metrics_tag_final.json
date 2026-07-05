@@ -1,0 +1,36 @@
+{
+  "description": "Modele tag final - amount + hour_of_day uniquement (100% transferable vers KRYPT, role auxiliaire non decisionnaire)",
+  "features": [
+    "amount",
+    "hour_of_day"
+  ],
+  "f1": 0.031224868972019634,
+  "precision": 0.01597639013039345,
+  "recall": 0.6853317102860621,
+  "roc_auc": 0.8430188683431885,
+  "pr_auc": 0.22049170038889604,
+  "confusion_matrix": [
+    [
+      483086,
+      69353
+    ],
+    [
+      517,
+      1126
+    ]
+  ],
+  "feature_importances": {
+    "hour_of_day": 0.6861075162887573,
+    "amount": 0.3138924241065979
+  },
+  "inference_latency_ms": {
+    "mean": 1.4047744951676577,
+    "p95": 1.845569850411266
+  },
+  "dataset_sizes": {
+    "train_total": 2216327,
+    "test_total": 554082,
+    "test_fraud": 1643,
+    "test_fraud_rate": 0.002965265069069199
+  }
+}
