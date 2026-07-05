@@ -19,3 +19,10 @@ miniodata/
 # IDE
 .idea/
 .vscode/
+ml_training/data/
+ml_training/venv/
+ml_training/models/*.pkl
+backend/.coverage
+backend/venv/
+__pycache__/
+*.pyc
