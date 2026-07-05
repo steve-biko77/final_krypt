@@ -18,6 +18,10 @@ class DjangoORMAMLRepository:
             reviewed_by_id=uuid.UUID(result.reviewed_by_id) if result.reviewed_by_id else None,
             review_decision=result.review_decision,
             audit_hash=result.audit_hash,
+            is_new_beneficiary=result.is_new_beneficiary,
+            sender_tx_count_30d=result.sender_tx_count_30d,
+            tag_ml_score=result.tag_ml_score,
+            triggered_rules=result.triggered_rules or [],
         )
         obj.save()
         return self._to_entity(obj)
@@ -42,4 +46,8 @@ class DjangoORMAMLRepository:
             review_decision=obj.review_decision,
             audit_hash=obj.audit_hash,
             created_at=obj.created_at,
+            is_new_beneficiary=obj.is_new_beneficiary,
+            sender_tx_count_30d=obj.sender_tx_count_30d,
+            tag_ml_score=obj.tag_ml_score,
+            triggered_rules=obj.triggered_rules or [],
         )

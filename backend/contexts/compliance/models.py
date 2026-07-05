@@ -79,6 +79,11 @@ class AMLResultModel(models.Model):
     ofac_match = models.BooleanField(default=False)
     ofac_details = models.JSONField(null=True, blank=True)
     combined_decision = models.CharField(max_length=20, choices=AMLDecision.choices)
+    # KRYP-22 v2 — architecture de décision 4 couches (seuils_production.md)
+    is_new_beneficiary = models.BooleanField(default=False)
+    sender_tx_count_30d = models.IntegerField(default=0)
+    tag_ml_score = models.FloatField(default=0.0)
+    triggered_rules = models.JSONField(default=list, blank=True)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -97,3 +102,34 @@ class AMLResultModel(models.Model):
 
     def __str__(self):
         return f"AML({self.transfer_id}, {self.combined_decision})"
+
+
+class AuditQueueModel(models.Model):
+    """
+    Couche 4 — file d'audit a posteriori (seuils_production.md §2).
+
+    Échantillon aléatoire de transactions AUTO_APPROVED sélectionnées pour une
+    review humaine différée (contrôle détectif, non préventif). `tag_ml_score`
+    est conservé pour permettre un tri/priorisation futur de la file par un
+    backoffice.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="aml_audit_queue_items",
+    )
+    transfer_id = models.CharField(max_length=100, db_index=True)
+    aml_result_id = models.CharField(max_length=100)
+    tag_ml_score = models.FloatField(default=0.0)
+    reviewed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "compliance"
+        db_table = "compliance_audit_queue"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AuditQueue({self.transfer_id}, reviewed={self.reviewed})"

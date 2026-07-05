@@ -27,6 +27,13 @@ class AMLResult:
     review_decision: Optional[str] = None
     audit_hash: Optional[str] = None
     created_at: Optional[datetime] = None
+    # Architecture de décision 4 couches (KRYP-22 v2, seuils_production.md) :
+    # features comportementales (loggées, réentraînement futur) + tag ML shadow
+    # + règles métier déclenchées (traçabilité audit Couche 1).
+    is_new_beneficiary: bool = False
+    sender_tx_count_30d: int = 0
+    tag_ml_score: float = 0.0
+    triggered_rules: list = field(default_factory=list)
 
 
 class DocumentType(str, Enum):

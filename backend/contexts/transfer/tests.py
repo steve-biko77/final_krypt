@@ -131,8 +131,22 @@ class InitiateTransferTests(APITestCase):
 
     @patch('stripe.PaymentIntent.create')
     def test_initiate_transfer_blocked(self, mock_create):
-        """Montant élevé → AML AUTO_BLOCKED, Stripe NON appelé, 403 AML_BLOCKED."""
-        res = self.client.post(INITIATE_URL, self._payload(4000), format='json')
+        """
+        Bénéficiaire sanctionné (match OFAC) → HARD_BLOCK, Stripe NON appelé,
+        403 AML_BLOCKED.
+
+        CHANGEMENT DE COMPORTEMENT INTENTIONNEL (seuils_production.md) : dans la
+        nouvelle architecture de décision 4 couches, un montant élevé ne produit
+        plus AUTO_BLOCKED (ce chemin par seuillage du score ML est retiré) mais
+        PENDING_REVIEW via une règle métier. Le SEUL chemin de blocage dur (403
+        AML_BLOCKED) est désormais un match OFAC (Couche 2). Ce test vérifie donc
+        le chemin bloqué via un nom sanctionné plutôt que via le montant.
+        """
+        res = self.client.post(
+            INITIATE_URL,
+            self._payload(50, name='Viktor Petrov Rosneft'),
+            format='json',
+        )
 
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(res.data['error'], 'AML_BLOCKED')

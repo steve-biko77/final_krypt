@@ -77,6 +77,8 @@ class InitiateTransferUseCase:
                 beneficiary_name=data.beneficiary_name,
                 beneficiary_country=data.beneficiary_country,
                 transfer_id=transaction.id,
+                momo_number=data.momo_number,
+                operator=data.operator,
             )
         )
         transaction.aml_result_id = aml_result.id

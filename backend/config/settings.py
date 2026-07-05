@@ -106,6 +106,12 @@ MINIO_SECURE = os.getenv("MINIO_SECURE", "False") == "True"
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
+# AML — architecture de décision 4 couches (KRYP-22, seuils_production.md)
+# AML_SCORER_MODE : "mock" (défaut, mock déterministe) ou "tag_ml" (modèle réel shadow)
+AML_SCORER_MODE = os.getenv("AML_SCORER_MODE", "mock")
+# Couche 4 — taux d'échantillonnage d'audit a posteriori sur les AUTO_APPROVED (1-2%)
+AML_AUDIT_SAMPLE_RATE = float(os.getenv("AML_AUDIT_SAMPLE_RATE", "0.02"))
+
 # Celery
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")

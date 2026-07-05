@@ -1,11 +1,16 @@
+from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ...adapters.orm.django_aml_repository import DjangoORMAMLRepository
+from ...adapters.orm.django_audit_queue_repository import DjangoAuditQueueRepository
+from ...adapters.services.django_transaction_history_service import (
+    DjangoTransactionHistoryService,
+)
 from ...adapters.services.mock_sanctions_checker import MockSanctionsChecker
-from ...adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+from ...adapters.services.scorer_factory import get_configured_scorer
 from ...domain.entities import AMLResult
 from ...use_cases.score_aml import ScoreAMLInput, ScoreAMLUseCase
 from .aml_serializers import AMLScoreRequestSerializer
@@ -17,8 +22,12 @@ def _result_to_dict(result: AMLResult) -> dict:
         "transfer_id": result.transfer_id,
         "decision": result.combined_decision.value,
         "xgboost_score": result.xgboost_score,
+        "tag_ml_score": result.tag_ml_score,
         "ofac_match": result.ofac_match,
         "ofac_details": result.ofac_details,
+        "triggered_rules": result.triggered_rules,
+        "is_new_beneficiary": result.is_new_beneficiary,
+        "sender_tx_count_30d": result.sender_tx_count_30d,
         "audit_hash": result.audit_hash,
         "created_at": result.created_at.isoformat() if result.created_at else None,
     }
@@ -47,9 +56,12 @@ class AMLScoreView(APIView):
 
         data = serializer.validated_data
         use_case = ScoreAMLUseCase(
-            scorer=MockXGBoostScorer(),
+            scorer=get_configured_scorer(),
             sanctions_checker=MockSanctionsChecker(),
             aml_repo=DjangoORMAMLRepository(),
+            transaction_history=DjangoTransactionHistoryService(),
+            audit_queue=DjangoAuditQueueRepository(),
+            audit_sample_rate=settings.AML_AUDIT_SAMPLE_RATE,
         )
         result = use_case.execute(
             ScoreAMLInput(
@@ -58,6 +70,8 @@ class AMLScoreView(APIView):
                 beneficiary_name=data["beneficiary_name"],
                 beneficiary_country=data["beneficiary_country"],
                 transfer_id=data.get("transfer_id", ""),
+                momo_number=data.get("momo_number", ""),
+                operator=data.get("operator", ""),
             )
         )
 

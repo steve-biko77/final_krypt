@@ -8,8 +8,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from contexts.compliance.adapters.orm.django_aml_repository import DjangoORMAMLRepository
+from contexts.compliance.adapters.orm.django_audit_queue_repository import DjangoAuditQueueRepository
+from contexts.compliance.adapters.services.django_transaction_history_service import (
+    DjangoTransactionHistoryService,
+)
 from contexts.compliance.adapters.services.mock_sanctions_checker import MockSanctionsChecker
-from contexts.compliance.adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+from contexts.compliance.adapters.services.scorer_factory import get_configured_scorer
 from contexts.compliance.use_cases.score_aml import ScoreAMLUseCase
 
 from ...adapters.orm.django_transaction_repository import DjangoORMTransactionRepository
@@ -88,9 +92,12 @@ def _build_initiate_use_case() -> InitiateTransferUseCase:
         exchange_rate_service=FixedExchangeRateService(),
         payment_service=StripePaymentService(),
         aml_use_case=ScoreAMLUseCase(
-            scorer=MockXGBoostScorer(),
+            scorer=get_configured_scorer(),
             sanctions_checker=MockSanctionsChecker(),
             aml_repo=DjangoORMAMLRepository(),
+            transaction_history=DjangoTransactionHistoryService(),
+            audit_queue=DjangoAuditQueueRepository(),
+            audit_sample_rate=settings.AML_AUDIT_SAMPLE_RATE,
         ),
         transaction_repo=DjangoORMTransactionRepository(),
     )

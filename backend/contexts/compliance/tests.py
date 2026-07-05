@@ -347,11 +347,20 @@ class AMLScoringTests(APITestCase):
         self.assertLessEqual(res.data['xgboost_score'], 0.7)
 
     def test_aml_high_risk(self):
-        """Montant 4000 EUR → AUTO_BLOCKED, score > 0.7."""
+        """
+        Montant 4000 EUR → PENDING_REVIEW (règle métier RULE_HIGH_AMOUNT).
+
+        CHANGEMENT DE COMPORTEMENT INTENTIONNEL (seuils_production.md) :
+        l'ancienne architecture retournait AUTO_BLOCKED par seuillage du score ML
+        (> 0.7). La nouvelle architecture de décision 4 couches retire ce chemin :
+        un montant > 3000 EUR déclenche désormais une RÈGLE MÉTIER qui force
+        PENDING_REVIEW, jamais un blocage automatique par le score. Le score ML
+        (tag) n'est plus décisionnaire — il est loggé mais ne bloque plus seul.
+        """
         res = self._score(4000, transfer_id='t-high-risk')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data['decision'], 'AUTO_BLOCKED')
-        self.assertGreater(res.data['xgboost_score'], 0.7)
+        self.assertEqual(res.data['decision'], 'PENDING_REVIEW')
+        self.assertIn('HIGH_AMOUNT', res.data['triggered_rules'])
 
     def test_aml_ofac_match(self):
         """Nom sanctionné (OFAC list) → HARD_BLOCK, ofac_match=True."""
@@ -394,3 +403,156 @@ class AMLScoringTests(APITestCase):
         res = self._score(50, transfer_id='t-no-kyc')
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(res.data['error'], 'KYC_INVALID')
+
+    # ---- KRYP-22 v2 : architecture de décision 4 couches --------------------
+
+    def _patch_scorer(self, tag_score):
+        """Force le score tag ML retourné par le scorer configuré (mode mock)."""
+        from contexts.compliance.adapters.services.mock_xgboost_scorer import MockXGBoostScorer
+        from contexts.compliance.ports.aml_scoring_service import AMLScore
+        return patch.object(
+            MockXGBoostScorer, 'score', return_value=AMLScore(xgboost_score=tag_score)
+        )
+
+    def test_business_rule_high_amount_forces_review(self):
+        """RULE 1 — montant > 3000 EUR → PENDING_REVIEW + triggered_rules."""
+        res = self._score(3500, transfer_id='t-rule-high-amount')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'PENDING_REVIEW')
+        self.assertIn('HIGH_AMOUNT', res.data['triggered_rules'])
+
+    def test_business_rule_new_beneficiary_high_amount_forces_review(self):
+        """
+        RULE 2 — nouveau bénéficiaire + montant 1500 EUR (1000 < x < 3000, donc
+        RULE 1 ne se déclenche pas, on isole RULE 2) → PENDING_REVIEW.
+        """
+        res = self._score(1500, transfer_id='t-rule-new-benef')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'PENDING_REVIEW')
+        self.assertIn('NEW_BENEFICIARY_HIGH_AMOUNT', res.data['triggered_rules'])
+        self.assertNotIn('HIGH_AMOUNT', res.data['triggered_rules'])
+
+    def test_tag_ml_score_never_blocks_alone(self):
+        """
+        PROPRIÉTÉ DE SÉCURITÉ CENTRALE : un score tag ML élevé (0.99) sur une
+        transaction sans règle métier ni match OFAC (montant 50) → AUTO_APPROVED.
+        Le score ML ne bloque JAMAIS seul (seuils_production.md).
+        """
+        with self._patch_scorer(0.99):
+            res = self._score(50, transfer_id='t-tag-no-block')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'AUTO_APPROVED')
+        self.assertAlmostEqual(res.data['tag_ml_score'], 0.99)
+        self.assertEqual(res.data['triggered_rules'], [])
+
+    def test_tag_ml_score_never_unblocks(self):
+        """
+        Un score tag ML très bas (0.01) NE PEUT PAS débloquer une transaction
+        signalée par une règle métier (montant 4000) → reste PENDING_REVIEW.
+        """
+        with self._patch_scorer(0.01):
+            res = self._score(4000, transfer_id='t-tag-no-unblock')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'PENDING_REVIEW')
+        self.assertIn('HIGH_AMOUNT', res.data['triggered_rules'])
+
+    def test_ofac_match_always_hard_block_regardless_of_tag_score(self):
+        """Match OFAC + score tag ML forcé bas (0.01) → HARD_BLOCK malgré tout."""
+        with self._patch_scorer(0.01):
+            res = self._score(50, name=_OFAC_NAME, transfer_id='t-ofac-tag-low')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'HARD_BLOCK')
+        self.assertTrue(res.data['ofac_match'])
+
+    def test_behavioral_features_logged_even_when_unused(self):
+        """
+        Couche 4 — les features comportementales sont persistées même sur un
+        AUTO_APPROVED où elles n'ont influencé aucune décision.
+        """
+        res = self._score(50, transfer_id='t-behavioral-logged')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['decision'], 'AUTO_APPROVED')
+
+        from contexts.compliance.models import AMLResultModel
+        obj = AMLResultModel.objects.get(transfer_id='t-behavioral-logged')
+        # is_new_beneficiary calculé à True (aucune transaction antérieure) —
+        # diffère du défaut False du champ, prouvant qu'il a bien été écrit.
+        self.assertTrue(obj.is_new_beneficiary)
+        self.assertEqual(obj.sender_tx_count_30d, 0)
+        self.assertIsNotNone(obj.tag_ml_score)
+
+    @override_settings(AML_AUDIT_SAMPLE_RATE=1.0)
+    def test_audit_sampling_rate_respected_full(self):
+        """Rate 1.0 → chaque AUTO_APPROVED est échantillonné en file d'audit."""
+        from contexts.compliance.models import AuditQueueModel
+        n = 15
+        for i in range(n):
+            res = self._score(50, transfer_id=f't-audit-full-{i}')
+            self.assertEqual(res.data['decision'], 'AUTO_APPROVED')
+        self.assertEqual(AuditQueueModel.objects.count(), n)
+
+    @override_settings(AML_AUDIT_SAMPLE_RATE=0.0)
+    def test_audit_sampling_rate_respected_zero(self):
+        """Rate 0.0 → aucune transaction n'est échantillonnée."""
+        from contexts.compliance.models import AuditQueueModel
+        for i in range(10):
+            self._score(50, transfer_id=f't-audit-zero-{i}')
+        self.assertEqual(AuditQueueModel.objects.count(), 0)
+
+    @override_settings(AML_AUDIT_SAMPLE_RATE=0.5)
+    def test_audit_sampling_rate_respected_partial(self):
+        """
+        Rate 0.5 sur 80 AUTO_APPROVED (RNG seedé) → nombre échantillonné dans une
+        bande statistique large autour de 40. Prouve que le tirage aléatoire suit
+        bien le taux configuré sans jamais changer la décision retournée.
+        """
+        import random as _random
+        from contexts.compliance.models import AuditQueueModel
+        _random.seed(2026)
+        n = 80
+        for i in range(n):
+            res = self._score(50, transfer_id=f't-audit-partial-{i}')
+            self.assertEqual(res.data['decision'], 'AUTO_APPROVED')
+        count = AuditQueueModel.objects.count()
+        self.assertGreater(count, 20)
+        self.assertLess(count, 60)
+
+
+class ApplyBusinessRulesTests(APITestCase):
+    """Tests unitaires ciblés de la Couche 1 (logique pure, sans I/O)."""
+
+    def _run(self, **kwargs):
+        from contexts.compliance.use_cases.apply_business_rules import (
+            ApplyBusinessRulesUseCase,
+            BusinessRulesInput,
+        )
+        return ApplyBusinessRulesUseCase().execute(BusinessRulesInput(**kwargs))
+
+    def test_rule_high_amount(self):
+        res = self._run(amount=3500)
+        self.assertIn('HIGH_AMOUNT', res.triggered_rules)
+        self.assertTrue(res.forces_review)
+
+    def test_rule_new_beneficiary_high_amount(self):
+        res = self._run(amount=1500, is_new_beneficiary=True)
+        self.assertIn('NEW_BENEFICIARY_HIGH_AMOUNT', res.triggered_rules)
+
+    def test_rule_new_beneficiary_low_amount_no_trigger(self):
+        res = self._run(amount=500, is_new_beneficiary=True)
+        self.assertEqual(res.triggered_rules, [])
+        self.assertFalse(res.forces_review)
+
+    def test_rule_operator_country_mismatch(self):
+        # ORANGE_MONEY ne couvre pas GH dans la table illustrative → mismatch
+        res = self._run(amount=100, beneficiary_country='GH', operator='ORANGE_MONEY')
+        self.assertIn('OPERATOR_COUNTRY_MISMATCH', res.triggered_rules)
+
+    def test_rule_operator_country_consistent_no_trigger(self):
+        # MTN_MOMO couvre CM → pas de mismatch
+        res = self._run(amount=100, beneficiary_country='CM', operator='MTN_MOMO')
+        self.assertEqual(res.triggered_rules, [])
+
+    def test_rule_operator_unknown_skipped_silently(self):
+        # Opérateur vide (endpoint standalone) → RULE 3 ignorée sans erreur
+        res = self._run(amount=100, beneficiary_country='ZZ', operator='')
+        self.assertEqual(res.triggered_rules, [])
