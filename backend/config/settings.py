@@ -112,6 +112,14 @@ AML_SCORER_MODE = os.getenv("AML_SCORER_MODE", "mock")
 # Couche 4 — taux d'échantillonnage d'audit a posteriori sur les AUTO_APPROVED (1-2%)
 AML_AUDIT_SAMPLE_RATE = float(os.getenv("AML_AUDIT_SAMPLE_RATE", "0.02"))
 
+# Blockchain — on-chain transparency/audit layer (KRYP-24, Polygon Amoy).
+# Phase 1/2: no real value custody on-chain. Credentials only used by the
+# Web3BlockchainService adapter; empty by default so local/CI runs never hit a
+# real network. Names mirror the Hardhat side (AMOY_RPC_URL / PRIVATE_KEY).
+BLOCKCHAIN_RPC_URL = os.getenv("AMOY_RPC_URL", "")
+BLOCKCHAIN_PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
+BLOCKCHAIN_CHAIN_ID = int(os.getenv("BLOCKCHAIN_CHAIN_ID", "80002"))
+
 # Celery
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")

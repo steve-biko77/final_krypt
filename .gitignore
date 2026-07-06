@@ -8,6 +8,11 @@ db.sqlite3
 frontend/node_modules/
 frontend/.next/
 
+# Blockchain (Hardhat build output)
+blockchain/node_modules/
+blockchain/artifacts/
+blockchain/cache/
+
 # Docker
 pgdata/
 miniodata/
@@ -15,6 +20,7 @@ miniodata/
 # Env
 .env
 .env.*
+!.env.example
 
 # IDE
 .idea/
