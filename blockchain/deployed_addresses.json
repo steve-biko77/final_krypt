@@ -1,0 +1,9 @@
+{
+  "network": "amoy",
+  "chainId": 80002,
+  "deployedAt": "2026-07-07T18:50:47.026Z",
+  "contracts": {
+    "AuditTrail": "0xCa4600D15c3B9e7982e754a047d237E8e4217e35",
+    "Escrow": "0xCdc8A7c622057D7B192860a89aBB254E85A9b2Cd"
+  }
+}
