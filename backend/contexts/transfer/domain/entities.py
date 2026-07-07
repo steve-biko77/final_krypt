@@ -23,6 +23,7 @@ class TransactionStatus(str, Enum):
     AML_PENDING_REVIEW = "AML_PENDING_REVIEW"
     PROCESSING = "PROCESSING"
     ESCROWED = "ESCROWED"
+    ESCROW_FAILED = "ESCROW_FAILED"
     DELIVERED = "DELIVERED"
     PAYMENT_FAILED = "PAYMENT_FAILED"
 
@@ -41,5 +42,6 @@ class Transaction:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     aml_result_id: Optional[str] = None
     stripe_payment_intent_id: Optional[str] = None
+    escrow_tx_hash: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

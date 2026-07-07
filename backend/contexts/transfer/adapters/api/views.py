@@ -209,7 +209,12 @@ class StripeWebhookView(APIView):
         if event_type == "payment_intent.succeeded":
             transaction = repo.find_by_payment_intent_id(intent_id)
             if transaction:
-                repo.update_status(transaction.id, TransactionStatus.ESCROWED)
+                # KRYP-25 — le verrouillage escrow est désormais un appel on-chain
+                # réel dispatché de façon asynchrone (Fig. 7 : la transition
+                # PROCESSING → ESCROWED est réalisée par la tâche, plus ici). La
+                # transaction reste PROCESSING à ce stade.
+                from contexts.transfer.tasks import escrow_lock_task
+                escrow_lock_task.delay(transaction.id)
         elif event_type == "payment_intent.payment_failed":
             transaction = repo.find_by_payment_intent_id(intent_id)
             if transaction:

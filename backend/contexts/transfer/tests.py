@@ -186,9 +186,19 @@ class StripeWebhookTests(APITestCase):
             stripe_payment_intent_id=intent_id,
         )
 
+    @patch('contexts.transfer.tasks.escrow_lock_task.delay')
     @patch('stripe.Webhook.construct_event')
-    def test_stripe_webhook_payment_succeeded(self, mock_construct):
-        """payment_intent.succeeded → transaction passe à ESCROWED."""
+    def test_stripe_webhook_payment_succeeded(self, mock_construct, mock_delay):
+        """payment_intent.succeeded → escrow_lock_task dispatché, txn reste PROCESSING.
+
+        CHANGEMENT DE COMPORTEMENT INTENTIONNEL (KRYP-25) : le verrouillage escrow
+        n'est plus un simple flip de statut synchrone dans le webhook. C'est
+        désormais un appel on-chain réel (Escrow.lock) dispatché de façon
+        asynchrone via Celery. Le webhook ne fait donc que déclencher la tâche ;
+        la transition PROCESSING → ESCROWED est testée séparément au niveau du
+        LockEscrowUseCase / de la tâche. La transaction reste PROCESSING juste
+        après la réponse du webhook.
+        """
         txn = self._create_transaction(intent_id='pi_hook_success')
         mock_construct.return_value = {
             'type': 'payment_intent.succeeded',
@@ -200,9 +210,9 @@ class StripeWebhookTests(APITestCase):
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(res.data['received'])
-        from contexts.transfer.models import TransactionModel
+        mock_delay.assert_called_once_with(str(txn.id))
         txn.refresh_from_db()
-        self.assertEqual(txn.status, 'ESCROWED')
+        self.assertEqual(txn.status, 'PROCESSING')
 
     @patch('stripe.Webhook.construct_event')
     def test_stripe_webhook_invalid_signature(self, mock_construct):
@@ -311,3 +321,175 @@ class TransactionRepositoryTests(APITestCase):
         )
         repo = DjangoORMTransactionRepository()
         self.assertIsNone(repo.find_by_payment_intent_id('pi_does_not_exist'))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-25 : verrouillage escrow temps réel + mise en file du hash d'audit
+# ─────────────────────────────────────────────────────────────────────────────
+
+class LockEscrowUseCaseTests(APITestCase):
+    """LockEscrowUseCase : BlockchainServicePort mocké, repo ORM réel."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+
+    def _create_transaction(self, status_value='PROCESSING'):
+        from contexts.transfer.models import TransactionModel
+        return TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32309.00'),
+            status=status_value,
+        )
+
+    def _use_case(self, blockchain):
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.use_cases.lock_escrow import LockEscrowUseCase
+        return LockEscrowUseCase(
+            blockchain_service=blockchain,
+            transaction_repo=DjangoORMTransactionRepository(),
+            sleep_fn=MagicMock(),  # jamais de vrai time.sleep dans les tests
+        )
+
+    def test_escrow_lock_success(self):
+        """escrow_lock réussit du premier coup → ESCROWED + tx hash stocké."""
+        txn = self._create_transaction()
+        blockchain = MagicMock()
+        blockchain.escrow_lock.return_value = '0xdeadbeef'
+
+        result = self._use_case(blockchain).execute(str(txn.id))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.tx_hash, '0xdeadbeef')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROWED')
+        self.assertEqual(txn.escrow_tx_hash, '0xdeadbeef')
+        # 50.00 EUR → 5000 cents transmis au port.
+        blockchain.escrow_lock.assert_called_once_with(str(txn.id), 5000)
+
+    def test_escrow_lock_retry_then_success(self):
+        """Échoue 2 fois puis réussit à la 3e → ESCROWED, 3 appels, sleep mocké."""
+        txn = self._create_transaction()
+        blockchain = MagicMock()
+        blockchain.escrow_lock.side_effect = [
+            RuntimeError('rpc down'),
+            RuntimeError('rpc down'),
+            '0xok3',
+        ]
+        sleep_fn = MagicMock()
+
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.use_cases.lock_escrow import LockEscrowUseCase
+        use_case = LockEscrowUseCase(
+            blockchain_service=blockchain,
+            transaction_repo=DjangoORMTransactionRepository(),
+            sleep_fn=sleep_fn,
+        )
+        result = use_case.execute(str(txn.id))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.tx_hash, '0xok3')
+        self.assertEqual(blockchain.escrow_lock.call_count, 3)
+        self.assertTrue(sleep_fn.called)  # backoff via sleep_fn, pas time.sleep
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROWED')
+
+    def test_escrow_lock_all_retries_fail_status_failed(self):
+        """Échoue à chaque tentative → ESCROW_FAILED + log_critical_event, aucun hash."""
+        from contexts.blockchain.models import PendingAuditHash
+        txn = self._create_transaction()
+        blockchain = MagicMock()
+        blockchain.escrow_lock.side_effect = RuntimeError('rpc permanently down')
+
+        result = self._use_case(blockchain).execute(str(txn.id))
+
+        self.assertFalse(result.success)
+        self.assertIsNone(result.tx_hash)
+        self.assertEqual(blockchain.escrow_lock.call_count, 3)
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROW_FAILED')
+        blockchain.log_critical_event.assert_called_once_with(
+            str(txn.id), 'ESCROW_LOCK_FAILED'
+        )
+        # Un transfert en échec ne doit jamais alimenter le batch d'audit.
+        self.assertEqual(
+            PendingAuditHash.objects.filter(transaction_id=str(txn.id)).count(), 0
+        )
+
+    def test_critical_event_failure_does_not_crash_use_case(self):
+        """Si log_critical_event échoue aussi, le use case résout quand même (best-effort)."""
+        txn = self._create_transaction()
+        blockchain = MagicMock()
+        blockchain.escrow_lock.side_effect = RuntimeError('down')
+        blockchain.log_critical_event.side_effect = RuntimeError('audit rpc down')
+
+        result = self._use_case(blockchain).execute(str(txn.id))
+
+        self.assertFalse(result.success)
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROW_FAILED')
+
+
+class EscrowLockTaskTests(APITestCase):
+    """Tâche Celery escrow_lock_task : appelée en direct (eager) avec port mocké."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+
+    def _create_transaction(self):
+        from contexts.transfer.models import TransactionModel
+        return TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32309.00'),
+            status='PROCESSING',
+        )
+
+    @patch('contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService')
+    def test_audit_hash_queued_after_escrow_lock(self, mock_service_cls):
+        """Après un escrow_lock_task réussi → exactement 1 PendingAuditHash, batched=False."""
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.transfer.tasks import escrow_lock_task
+        txn = self._create_transaction()
+        mock_service_cls.return_value.escrow_lock.return_value = '0xabc'
+
+        escrow_lock_task.run(str(txn.id))
+
+        rows = PendingAuditHash.objects.filter(transaction_id=str(txn.id))
+        self.assertEqual(rows.count(), 1)
+        row = rows.first()
+        self.assertFalse(row.batched)
+        self.assertTrue(row.leaf_hash.startswith('0x'))
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROWED')
+
+    @patch('contexts.transfer.use_cases.lock_escrow.time.sleep')
+    @patch('contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService')
+    def test_no_audit_hash_when_escrow_lock_fails(self, mock_service_cls, mock_sleep):
+        """escrow_lock échoue toujours → aucune ligne PendingAuditHash."""
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.transfer.tasks import escrow_lock_task
+        txn = self._create_transaction()
+        mock_service_cls.return_value.escrow_lock.side_effect = RuntimeError('down')
+
+        escrow_lock_task.run(str(txn.id))
+
+        self.assertEqual(
+            PendingAuditHash.objects.filter(transaction_id=str(txn.id)).count(), 0
+        )
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROW_FAILED')

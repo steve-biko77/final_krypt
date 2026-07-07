@@ -16,6 +16,7 @@ class TransactionStatus(models.TextChoices):
     AML_PENDING_REVIEW = "AML_PENDING_REVIEW", "Révision AML requise"
     PROCESSING = "PROCESSING", "Paiement en cours"
     ESCROWED = "ESCROWED", "Fonds sécurisés (escrow)"
+    ESCROW_FAILED = "ESCROW_FAILED", "Échec verrouillage escrow"
     DELIVERED = "DELIVERED", "Livré"
     PAYMENT_FAILED = "PAYMENT_FAILED", "Paiement échoué"
 
@@ -43,6 +44,7 @@ class TransactionModel(models.Model):
     stripe_payment_intent_id = models.CharField(
         max_length=255, null=True, blank=True, db_index=True
     )
+    escrow_tx_hash = models.CharField(max_length=100, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

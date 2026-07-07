@@ -21,6 +21,7 @@ class DjangoORMTransactionRepository:
                 status=transaction.status.value,
                 aml_result_id=transaction.aml_result_id,
                 stripe_payment_intent_id=transaction.stripe_payment_intent_id,
+                escrow_tx_hash=transaction.escrow_tx_hash,
             ),
         )
         return self._to_entity(obj)
@@ -46,6 +47,13 @@ class DjangoORMTransactionRepository:
     def update_status(self, id: str, status: TransactionStatus) -> None:
         TransactionModel.objects.filter(pk=uuid.UUID(id)).update(status=status.value)
 
+    def mark_escrowed(self, id: str, tx_hash: str) -> None:
+        """Persist the ESCROWED status and the on-chain tx hash in one update."""
+        TransactionModel.objects.filter(pk=uuid.UUID(id)).update(
+            status=TransactionStatus.ESCROWED.value,
+            escrow_tx_hash=tx_hash,
+        )
+
     def _to_entity(self, obj: TransactionModel) -> Transaction:
         return Transaction(
             id=str(obj.pk),
@@ -60,6 +68,7 @@ class DjangoORMTransactionRepository:
             status=TransactionStatus(obj.status),
             aml_result_id=obj.aml_result_id,
             stripe_payment_intent_id=obj.stripe_payment_intent_id,
+            escrow_tx_hash=obj.escrow_tx_hash,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )

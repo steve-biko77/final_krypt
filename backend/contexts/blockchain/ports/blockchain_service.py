@@ -42,3 +42,12 @@ class BlockchainServicePort(ABC):
     @abstractmethod
     def escrow_refund(self, transfer_id: str) -> str:
         """Record a locked transfer as REFUNDED on Escrow. Returns the tx hash."""
+
+    @abstractmethod
+    def log_critical_event(self, transfer_id: str, event_type: str) -> str:
+        """Emit an unbatched, real-time critical audit event on AuditTrail.
+
+        Reserved for genuinely exceptional events (e.g. an escrow-lock failure
+        after all retries) that must be traceable immediately instead of waiting
+        for the 15-minute Merkle batch. Returns the tx hash.
+        """

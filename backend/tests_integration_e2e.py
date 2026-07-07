@@ -120,7 +120,15 @@ class EndToEndTransferFlowTests(APITestCase):
         transaction_id = initiate.data['transaction_id']
 
         # --- 8. Webhook Stripe : payment_intent.succeeded --------------------
-        with patch('stripe.Webhook.construct_event') as mock_construct:
+        # KRYP-25 — le webhook dispatche escrow_lock_task (Celery eager ici, donc
+        # exécuté inline). L'appel on-chain Escrow.lock est mocké, au même titre
+        # que Stripe/MinIO ; le reste de la tâche (use case, retry, mise en file
+        # du hash d'audit, transition PROCESSING → ESCROWED) s'exécute pour de vrai.
+        with patch('stripe.Webhook.construct_event') as mock_construct, patch(
+            'contexts.blockchain.adapters.services.web3_blockchain_service.'
+            'Web3BlockchainService'
+        ) as mock_bc:
+            mock_bc.return_value.escrow_lock.return_value = '0xe2e_escrow_hash'
             mock_construct.return_value = {
                 'type': 'payment_intent.succeeded',
                 'data': {'object': {'id': 'pi_e2e_123'}},

@@ -166,3 +166,10 @@ class Web3BlockchainService(BlockchainServicePort):
         contract = self._contract("Escrow")
         fn = contract.functions.refund(Web3.to_bytes(hexstr=transfer_id))
         return self._send(fn)
+
+    def log_critical_event(self, transfer_id: str, event_type: str) -> str:
+        contract = self._contract("AuditTrail")
+        fn = contract.functions.logCriticalEvent(
+            Web3.to_bytes(hexstr=transfer_id), event_type
+        )
+        return self._send(fn)

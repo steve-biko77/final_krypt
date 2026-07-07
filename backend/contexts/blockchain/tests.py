@@ -9,12 +9,14 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from web3 import Web3
 
 from contexts.blockchain.adapters.services.web3_blockchain_service import (
     BlockchainConfigError,
     Web3BlockchainService,
 )
+from contexts.blockchain.domain.merkle import MerkleTree, verify_proof
 
 WEB3_PATH = "contexts.blockchain.adapters.services.web3_blockchain_service.Web3"
 
@@ -128,6 +130,19 @@ class Web3BlockchainServiceTests(SimpleTestCase):
         # Three state-changing calls => three signed raw transactions sent.
         self.assertEqual(w3.eth.send_raw_transaction.call_count, 3)
 
+    def test_log_critical_event_calls_audittrail_and_returns_hash(self):
+        web3_cls, w3 = _make_web3_mock()
+        contract = w3.eth.contract.return_value
+        with mock.patch(WEB3_PATH, web3_cls):
+            svc = self._service()
+            tx = svc.log_critical_event(TRANSFER_ID, "ESCROW_LOCK_FAILED")
+
+        self.assertEqual(tx, "0xabc123")
+        contract.functions.logCriticalEvent.assert_called_once_with(
+            web3_cls.to_bytes.return_value, "ESCROW_LOCK_FAILED"
+        )
+        web3_cls.to_bytes.assert_any_call(hexstr=TRANSFER_ID)
+
     def test_send_signs_with_chain_id_and_nonce(self):
         web3_cls, w3 = _make_web3_mock()
         with mock.patch(WEB3_PATH, web3_cls):
@@ -177,3 +192,120 @@ class Web3BlockchainServiceTests(SimpleTestCase):
         with mock.patch(WEB3_PATH, web3_cls):
             with self.assertRaises(BlockchainConfigError):
                 svc.escrow_lock(TRANSFER_ID, 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-25 — Arbre de Merkle (sorted-pair keccak256, compatible OZ MerkleProof)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _leaf(value: str) -> str:
+    """A pre-hashed leaf, exactly as the task stores it on PendingAuditHash."""
+    return Web3.keccak(text=value).hex()
+
+
+class MerkleTreeTests(SimpleTestCase):
+    """Pure-Python tests — no DB, no network. Confirms a (leaf, proof, root)
+    triple validates via an independent OZ-equivalent verification walk, so the
+    same triple would validate against the deployed AuditTrail.verifyInclusion."""
+
+    def test_valid_proof_verifies_against_root(self):
+        values = ["tx-a", "tx-b", "tx-c", "tx-d", "tx-e"]  # odd-node level exercised
+        leaves = [_leaf(v) for v in values]
+        tree = MerkleTree(leaves)
+        root = tree.root
+
+        for leaf in leaves:
+            proof = tree.proof(leaf)
+            self.assertTrue(
+                verify_proof(leaf, proof, root),
+                msg=f"leaf {leaf} should verify against root",
+            )
+
+    def test_wrong_leaf_fails_to_verify(self):
+        leaves = [_leaf(v) for v in ("tx-a", "tx-b", "tx-c", "tx-d")]
+        tree = MerkleTree(leaves)
+        proof = tree.proof(leaves[0])
+        # Proof for leaf[0] must not validate a different leaf.
+        self.assertFalse(verify_proof(leaves[1], proof, tree.root))
+        # Nor a bogus leaf never in the tree.
+        self.assertFalse(verify_proof(_leaf("not-in-tree"), proof, tree.root))
+
+    def test_single_leaf_tree_root_is_the_leaf(self):
+        leaf = _leaf("solo")
+        tree = MerkleTree([leaf])
+        self.assertEqual(tree.root, Web3.to_bytes(hexstr=leaf))
+        self.assertTrue(verify_proof(leaf, [], tree.root))
+
+    def test_root_hex_is_stable_and_prefixed(self):
+        leaves = [_leaf(v) for v in ("a", "b", "c")]
+        self.assertEqual(MerkleTree(leaves).root_hex(), MerkleTree(leaves).root_hex())
+        self.assertTrue(MerkleTree(leaves).root_hex().startswith("0x"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-25 — Tâche de soumission du batch d'audit (Merkle → AuditTrail)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SubmitAuditBatchTaskTests(TestCase):
+
+    def _pending(self, transaction_id: str):
+        from contexts.blockchain.models import PendingAuditHash
+        return PendingAuditHash.objects.create(
+            transaction_id=transaction_id,
+            leaf_hash=_leaf(transaction_id),
+        )
+
+    @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
+    def test_merkle_batch_submission_groups_pending_hashes(self, mock_service_cls):
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.blockchain.tasks import submit_audit_batch_task
+
+        ids = ["tx-1", "tx-2", "tx-3", "tx-4"]
+        for i in ids:
+            self._pending(i)
+        mock_service_cls.return_value.submit_audit_batch.return_value = "0xbatch"
+
+        result = submit_audit_batch_task()
+
+        # submit_audit_batch appelé exactement une fois.
+        mock_service_cls.return_value.submit_audit_batch.assert_called_once()
+        args = mock_service_cls.return_value.submit_audit_batch.call_args[0]
+        batch_id, submitted_root, tx_count = args[0], args[1], args[2]
+        self.assertEqual(tx_count, 4)
+
+        # La racine soumise correspond à celle recalculée indépendamment.
+        expected_root = MerkleTree([_leaf(i) for i in ids]).root_hex()
+        self.assertEqual(submitted_root, expected_root)
+        self.assertEqual(result["merkle_root"], expected_root)
+
+        # Toutes les lignes sont maintenant batched avec le même batch_id.
+        rows = PendingAuditHash.objects.filter(transaction_id__in=ids)
+        self.assertTrue(all(r.batched for r in rows))
+        self.assertEqual({r.batch_id for r in rows}, {batch_id})
+
+    @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
+    def test_merkle_batch_skipped_when_empty(self, mock_service_cls):
+        from contexts.blockchain.tasks import submit_audit_batch_task
+
+        result = submit_audit_batch_task()
+
+        self.assertFalse(result["submitted"])
+        mock_service_cls.return_value.submit_audit_batch.assert_not_called()
+
+    @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
+    def test_already_batched_rows_are_ignored(self, mock_service_cls):
+        from contexts.blockchain.tasks import submit_audit_batch_task
+
+        already = self._pending("tx-old")
+        already.batched = True
+        already.batch_id = 1
+        already.save()
+        self._pending("tx-new")
+        mock_service_cls.return_value.submit_audit_batch.return_value = "0xb2"
+
+        result = submit_audit_batch_task()
+
+        self.assertTrue(result["submitted"])
+        self.assertEqual(result["count"], 1)  # seule la ligne non batchée
+        # batch_id monotone : 1 déjà pris → 2.
+        self.assertEqual(result["batch_id"], 2)

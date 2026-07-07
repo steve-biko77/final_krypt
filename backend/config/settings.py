@@ -2,6 +2,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from celery.schedules import crontab
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,6 +22,7 @@ INSTALLED_APPS = [
     "contexts.identity",
     "contexts.compliance",
     "contexts.transfer",
+    "contexts.blockchain",
 ]
 
 MIDDLEWARE = [
@@ -127,6 +129,18 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "Europe/Paris"
+
+# KRYP-25 — AuditTrail is batched via Merkle tree every 15 minutes, never
+# per-transaction (mémoire ch.1 Phase 2: 0.9-1% fee target, comparable TapTap
+# Send — one on-chain event per transfer would erode the batching cost savings).
+# Static in-settings schedule (no django-celery-beat dependency), consistent
+# with the minimal Celery setup.
+CELERY_BEAT_SCHEDULE = {
+    "submit-audit-batch-every-15-min": {
+        "task": "blockchain.submit_audit_batch",
+        "schedule": crontab(minute="*/15"),
+    },
+}
 
 LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"
