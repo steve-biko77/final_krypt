@@ -124,10 +124,13 @@ class EndToEndTransferFlowTests(APITestCase):
         # exécuté inline). L'appel on-chain Escrow.lock est mocké, au même titre
         # que Stripe/MinIO ; le reste de la tâche (use case, retry, mise en file
         # du hash d'audit, transition PROCESSING → ESCROWED) s'exécute pour de vrai.
+        # KRYP-26 — le succès de l'escrow enchaîne désormais payout_task ; on le
+        # mocke ici pour garder ce test E2E focalisé sur son périmètre nommé
+        # (jusqu'à ESCROWED). Le payout mobile money a sa propre couverture.
         with patch('stripe.Webhook.construct_event') as mock_construct, patch(
             'contexts.blockchain.adapters.services.web3_blockchain_service.'
             'Web3BlockchainService'
-        ) as mock_bc:
+        ) as mock_bc, patch('contexts.transfer.tasks.payout_task.delay'):
             mock_bc.return_value.escrow_lock.return_value = '0xe2e_escrow_hash'
             mock_construct.return_value = {
                 'type': 'payment_intent.succeeded',

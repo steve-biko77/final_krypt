@@ -26,6 +26,7 @@ class TransactionStatus(str, Enum):
     ESCROW_FAILED = "ESCROW_FAILED"
     DELIVERED = "DELIVERED"
     PAYMENT_FAILED = "PAYMENT_FAILED"
+    PAYOUT_FAILED = "PAYOUT_FAILED"
 
 
 @dataclass
@@ -43,5 +44,7 @@ class Transaction:
     aml_result_id: Optional[str] = None
     stripe_payment_intent_id: Optional[str] = None
     escrow_tx_hash: Optional[str] = None
+    escrowed_at: Optional[datetime] = None
+    payout_reference: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

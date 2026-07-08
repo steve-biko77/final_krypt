@@ -19,6 +19,7 @@ class TransactionStatus(models.TextChoices):
     ESCROW_FAILED = "ESCROW_FAILED", "Échec verrouillage escrow"
     DELIVERED = "DELIVERED", "Livré"
     PAYMENT_FAILED = "PAYMENT_FAILED", "Paiement échoué"
+    PAYOUT_FAILED = "PAYOUT_FAILED", "Échec payout mobile money"
 
 
 class TransactionModel(models.Model):
@@ -45,6 +46,11 @@ class TransactionModel(models.Model):
         max_length=255, null=True, blank=True, db_index=True
     )
     escrow_tx_hash = models.CharField(max_length=100, null=True, blank=True)
+    # Timestamp précis de l'entrée en statut ESCROWED — source non-ambiguë pour
+    # le job timeout 24h (ne pas réutiliser updated_at, modifié par d'autres saves).
+    escrowed_at = models.DateTimeField(null=True, blank=True)
+    # Référence payout MTN/Orange (pour polling de statut / traçabilité).
+    payout_reference = models.CharField(max_length=100, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

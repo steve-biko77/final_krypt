@@ -1,6 +1,8 @@
 import uuid
 from typing import Optional
 
+from django.utils import timezone
+
 from ...domain.entities import Transaction, TransactionStatus
 from ...models import TransactionModel
 
@@ -48,10 +50,26 @@ class DjangoORMTransactionRepository:
         TransactionModel.objects.filter(pk=uuid.UUID(id)).update(status=status.value)
 
     def mark_escrowed(self, id: str, tx_hash: str) -> None:
-        """Persist the ESCROWED status and the on-chain tx hash in one update."""
+        """Persist the ESCROWED status, the on-chain tx hash and the precise
+        ``escrowed_at`` timestamp in one update (the latter is the unambiguous
+        anchor the 24h-timeout job checks)."""
         TransactionModel.objects.filter(pk=uuid.UUID(id)).update(
             status=TransactionStatus.ESCROWED.value,
             escrow_tx_hash=tx_hash,
+            escrowed_at=timezone.now(),
+        )
+
+    def mark_delivered(self, id: str, payout_reference: str) -> None:
+        """Persist the DELIVERED status and the mobile-money payout reference."""
+        TransactionModel.objects.filter(pk=uuid.UUID(id)).update(
+            status=TransactionStatus.DELIVERED.value,
+            payout_reference=payout_reference,
+        )
+
+    def mark_payout_failed(self, id: str) -> None:
+        """Mark a transaction PAYOUT_FAILED (after failed payout / 24h timeout)."""
+        TransactionModel.objects.filter(pk=uuid.UUID(id)).update(
+            status=TransactionStatus.PAYOUT_FAILED.value,
         )
 
     def _to_entity(self, obj: TransactionModel) -> Transaction:
@@ -69,6 +87,8 @@ class DjangoORMTransactionRepository:
             aml_result_id=obj.aml_result_id,
             stripe_payment_intent_id=obj.stripe_payment_intent_id,
             escrow_tx_hash=obj.escrow_tx_hash,
+            escrowed_at=obj.escrowed_at,
+            payout_reference=obj.payout_reference,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )

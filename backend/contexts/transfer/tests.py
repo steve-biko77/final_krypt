@@ -459,15 +459,22 @@ class EscrowLockTaskTests(APITestCase):
             status='PROCESSING',
         )
 
+    @patch('contexts.transfer.tasks.payout_task.delay')
     @patch('contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService')
-    def test_audit_hash_queued_after_escrow_lock(self, mock_service_cls):
-        """Après un escrow_lock_task réussi → exactement 1 PendingAuditHash, batched=False."""
+    def test_audit_hash_queued_after_escrow_lock(self, mock_service_cls, mock_payout_delay):
+        """Après un escrow_lock_task réussi → exactement 1 PendingAuditHash, batched=False.
+
+        KRYP-26 : le succès déclenche aussi payout_task.delay (mocké ici pour
+        rester hermétique — pas d'enqueue Celery réel dans les tests unitaires).
+        """
         from contexts.blockchain.models import PendingAuditHash
         from contexts.transfer.tasks import escrow_lock_task
         txn = self._create_transaction()
         mock_service_cls.return_value.escrow_lock.return_value = '0xabc'
 
         escrow_lock_task.run(str(txn.id))
+
+        mock_payout_delay.assert_called_once_with(str(txn.id))
 
         rows = PendingAuditHash.objects.filter(transaction_id=str(txn.id))
         self.assertEqual(rows.count(), 1)
@@ -493,3 +500,215 @@ class EscrowLockTaskTests(APITestCase):
         )
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'ESCROW_FAILED')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-26 : payout mobile money (MTN réel / Orange mocké) après escrow
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ProcessPayoutUseCaseTests(APITestCase):
+    """ProcessPayoutUseCase : port mobile money + blockchain mockés, repo réel."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+
+    def _create_transaction(self, momo_number='+237699000002', operator='MTN_MOMO'):
+        from contexts.transfer.models import TransactionModel
+        return TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number=momo_number,
+            operator=operator,
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32309.00'),
+            status='ESCROWED',
+        )
+
+    def _use_case(self, momo, blockchain):
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.use_cases.process_payout import ProcessPayoutUseCase
+        return ProcessPayoutUseCase(
+            mobile_money_service=momo,
+            blockchain_service=blockchain,
+            transaction_repo=DjangoORMTransactionRepository(),
+            sleep_fn=MagicMock(),
+        )
+
+    def test_payout_success_mtn(self):
+        """MTN mocké, succès dès la 1re tentative → DELIVERED + escrow_release."""
+        from contexts.mobile_money.ports.mobile_money_service import PayoutResult
+        txn = self._create_transaction()
+        momo = MagicMock()
+        momo.send_payout.return_value = PayoutResult(payout_id='mtn-ref-1', status='PENDING')
+        blockchain = MagicMock()
+
+        result = self._use_case(momo, blockchain).execute(str(txn.id))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.payout_reference, 'mtn-ref-1')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'DELIVERED')
+        self.assertEqual(txn.payout_reference, 'mtn-ref-1')
+        blockchain.escrow_release.assert_called_once_with(str(txn.id))
+        # amount_xaf réutilisé (32309), transmis au port.
+        args = momo.send_payout.call_args.args
+        self.assertEqual(args[1], Decimal('32309.00'))
+
+    def test_payout_success_orange(self):
+        """OrangeMoneyMockService réel, numéro pair → DELIVERED."""
+        from contexts.mobile_money.adapters.services.orange_money_mock_service import (
+            OrangeMoneyMockService,
+        )
+        txn = self._create_transaction(
+            momo_number='+237699000002', operator='ORANGE_MONEY'
+        )
+        blockchain = MagicMock()
+
+        result = self._use_case(OrangeMoneyMockService(), blockchain).execute(str(txn.id))
+
+        self.assertTrue(result.success)
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'DELIVERED')
+        self.assertTrue(txn.payout_reference.startswith('orange-mock-'))
+
+    def test_payout_success_joins_merkle_batch_not_immediate_event(self):
+        """Succès → 1 PendingAuditHash (feuille :DELIVERED) et AUCUN log_critical_event."""
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.mobile_money.ports.mobile_money_service import PayoutResult
+        from web3 import Web3
+        txn = self._create_transaction()
+        momo = MagicMock()
+        momo.send_payout.return_value = PayoutResult(payout_id='ref', status='PENDING')
+        blockchain = MagicMock()
+
+        self._use_case(momo, blockchain).execute(str(txn.id))
+
+        rows = PendingAuditHash.objects.filter(transaction_id=str(txn.id))
+        self.assertEqual(rows.count(), 1)
+        # Feuille discriminée : keccak("{id}:DELIVERED"), distincte du leaf ESCROWED.
+        expected = Web3.keccak(text=f"{txn.id}:DELIVERED").hex()
+        if not expected.startswith('0x'):
+            expected = '0x' + expected
+        self.assertEqual(rows.first().leaf_hash, expected)
+        blockchain.log_critical_event.assert_not_called()
+
+    def test_payout_failure_orange_then_refund(self):
+        """Orange numéro impair → 3 échecs → escrow_refund + PAYOUT_FAILED."""
+        from contexts.mobile_money.adapters.services.orange_money_mock_service import (
+            OrangeMoneyMockService,
+        )
+        txn = self._create_transaction(
+            momo_number='+237699000001', operator='ORANGE_MONEY'
+        )
+        blockchain = MagicMock()
+
+        result = self._use_case(OrangeMoneyMockService(), blockchain).execute(str(txn.id))
+
+        self.assertFalse(result.success)
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'PAYOUT_FAILED')
+        blockchain.escrow_refund.assert_called_once_with(str(txn.id))
+
+    def test_payout_failure_triggers_immediate_critical_event(self):
+        """Échec total → log_critical_event appelé immédiatement, aucun PendingAuditHash."""
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.mobile_money.adapters.services.orange_money_mock_service import (
+            OrangeMoneyMockService,
+        )
+        txn = self._create_transaction(
+            momo_number='+237699000001', operator='ORANGE_MONEY'
+        )
+        blockchain = MagicMock()
+
+        self._use_case(OrangeMoneyMockService(), blockchain).execute(str(txn.id))
+
+        blockchain.log_critical_event.assert_called_once_with(
+            str(txn.id), 'PAYOUT_FAILED_REFUNDED'
+        )
+        self.assertEqual(
+            PendingAuditHash.objects.filter(transaction_id=str(txn.id)).count(), 0
+        )
+
+    def test_payout_factory_selects_correct_adapter(self):
+        from contexts.mobile_money.adapters.services.mobile_money_factory import (
+            get_mobile_money_service,
+        )
+        from contexts.mobile_money.adapters.services.mtn_momo_service import (
+            MTNMoMoService,
+        )
+        from contexts.mobile_money.adapters.services.orange_money_mock_service import (
+            OrangeMoneyMockService,
+        )
+        self.assertIsInstance(get_mobile_money_service('MTN_MOMO'), MTNMoMoService)
+        self.assertIsInstance(
+            get_mobile_money_service('ORANGE_MONEY'), OrangeMoneyMockService
+        )
+        with self.assertRaises(ValueError):
+            get_mobile_money_service('UNKNOWN_OP')
+
+
+class CheckEscrowTimeoutsTaskTests(APITestCase):
+    """Job Beat 24h : transferts bloqués en ESCROWED > 24h → refund forcé."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+
+    def _create_transaction(self):
+        from contexts.transfer.models import TransactionModel
+        return TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32309.00'),
+            status='ESCROWED',
+        )
+
+    @patch('contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService')
+    def test_payout_timeout_24h_forces_refund(self, mock_service_cls):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from contexts.transfer.models import TransactionModel
+        from contexts.transfer.tasks import check_escrow_timeouts_task
+        txn = self._create_transaction()
+        # Escrow entré il y a 25h → dépasse le seuil de 24h.
+        TransactionModel.objects.filter(pk=txn.id).update(
+            escrowed_at=timezone.now() - timedelta(hours=25)
+        )
+        blockchain = mock_service_cls.return_value
+
+        result = check_escrow_timeouts_task()
+
+        self.assertEqual(result['refunded'], 1)
+        blockchain.escrow_refund.assert_called_once_with(str(txn.id))
+        blockchain.log_critical_event.assert_called_once_with(
+            str(txn.id), 'ESCROW_TIMEOUT_REFUNDED'
+        )
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'PAYOUT_FAILED')
+
+    @patch('contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService')
+    def test_recent_escrow_not_refunded(self, mock_service_cls):
+        """Escrow récent (< 24h) → non touché par le job."""
+        from contexts.transfer.tasks import check_escrow_timeouts_task
+        from contexts.transfer.models import TransactionModel
+        from django.utils import timezone
+        txn = self._create_transaction()
+        TransactionModel.objects.filter(pk=txn.id).update(escrowed_at=timezone.now())
+        blockchain = mock_service_cls.return_value
+
+        result = check_escrow_timeouts_task()
+
+        self.assertEqual(result['refunded'], 0)
+        blockchain.escrow_refund.assert_not_called()
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'ESCROWED')

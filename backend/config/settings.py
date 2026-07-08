@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "contexts.compliance",
     "contexts.transfer",
     "contexts.blockchain",
+    "contexts.mobile_money",
 ]
 
 MIDDLEWARE = [
@@ -122,6 +123,21 @@ BLOCKCHAIN_RPC_URL = os.getenv("AMOY_RPC_URL", "")
 BLOCKCHAIN_PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
 BLOCKCHAIN_CHAIN_ID = int(os.getenv("BLOCKCHAIN_CHAIN_ID", "80002"))
 
+# Mobile Money — MTN MoMo Remittance (KRYP-26, real) + Orange (permanent mock).
+# Credentials empty by default so local/CI runs never hit the real sandbox.
+# MTN_REMITTANCE_API_VERSION drives the transfer endpoint generation:
+#   "v1_0" → POST /remittance/v1_0/transfer      (legacy, most-implemented — default)
+#   "v2_0" → POST /remittance/v2_0/cashtransfer  (newer, "set to replace" v1_0)
+# The interactive Remittance console is session-gated, so the exact live-sandbox
+# behaviour is confirmed by the user's own `pytest -m integration` run; keeping
+# the version configurable makes switching a one-line change.
+MTN_BASE_URL = os.getenv("MTN_BASE_URL", "https://sandbox.momodeveloper.mtn.com")
+MTN_SUBSCRIPTION_KEY = os.getenv("MTN_SUBSCRIPTION_KEY", "")
+MTN_API_USER = os.getenv("MTN_API_USER", "")
+MTN_API_KEY = os.getenv("MTN_API_KEY", "")
+MTN_REMITTANCE_API_VERSION = os.getenv("MTN_REMITTANCE_API_VERSION", "v1_0")
+MTN_TARGET_ENVIRONMENT = os.getenv("MTN_TARGET_ENVIRONMENT", "sandbox")
+
 # Celery
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -139,6 +155,12 @@ CELERY_BEAT_SCHEDULE = {
     "submit-audit-batch-every-15-min": {
         "task": "blockchain.submit_audit_batch",
         "schedule": crontab(minute="*/15"),
+    },
+    # KRYP-26 — hourly sweep to force-refund transfers stuck in ESCROWED > 24h
+    # (catches the 24h timeout within an hour of the mark without being spammy).
+    "check-escrow-timeouts-hourly": {
+        "task": "transfer.check_escrow_timeouts",
+        "schedule": crontab(minute=0),
     },
 }
 
