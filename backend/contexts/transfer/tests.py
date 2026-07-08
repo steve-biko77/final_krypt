@@ -651,6 +651,70 @@ class ProcessPayoutUseCaseTests(APITestCase):
             get_mobile_money_service('UNKNOWN_OP')
 
 
+class TransferStatusViewTests(APITestCase):
+    """KRYP-27 — la vue de statut expose les champs additionnels (lecture seule)
+    nécessaires à la timeline de suivi temps réel."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _create_transaction(self, **overrides):
+        from contexts.transfer.models import TransactionModel
+        defaults = dict(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('100.00'),
+            fees_eur=Decimal('1.50'),
+            amount_xaf=Decimal('64611.76'),
+            status='ESCROWED',
+            escrow_tx_hash='0xdeadbeef',
+            payout_reference=None,
+        )
+        defaults.update(overrides)
+        return TransactionModel.objects.create(**defaults)
+
+    def test_status_returns_new_fields(self):
+        """La réponse contient tous les nouveaux champs KRYP-27."""
+        from django.utils import timezone
+        txn = self._create_transaction()
+        # escrowed_at renseigné pour vérifier la sérialisation ISO nullable.
+        from contexts.transfer.models import TransactionModel
+        TransactionModel.objects.filter(pk=txn.id).update(escrowed_at=timezone.now())
+
+        res = self.client.get(f'/api/transfer/{txn.id}/status')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Champs existants toujours présents.
+        self.assertEqual(res.data['transaction_id'], str(txn.id))
+        self.assertEqual(res.data['status'], 'ESCROWED')
+        self.assertEqual(res.data['beneficiary_name'], 'Jean Mbarga')
+        # Nouveaux champs additifs.
+        self.assertEqual(res.data['beneficiary_country'], 'CM')
+        self.assertEqual(res.data['operator'], 'MTN_MOMO')
+        self.assertEqual(res.data['escrow_tx_hash'], '0xdeadbeef')
+        self.assertIsNone(res.data['payout_reference'])
+        self.assertIsNotNone(res.data['created_at'])
+        self.assertIsNotNone(res.data['updated_at'])
+        self.assertIsNotNone(res.data['escrowed_at'])
+
+    def test_status_nullable_fields_are_null_when_unset(self):
+        """escrowed_at / escrow_tx_hash / payout_reference nuls en début de flux."""
+        txn = self._create_transaction(
+            status='PENDING_AML', escrow_tx_hash=None, payout_reference=None
+        )
+        res = self.client.get(f'/api/transfer/{txn.id}/status')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data['escrow_tx_hash'])
+        self.assertIsNone(res.data['payout_reference'])
+        self.assertIsNone(res.data['escrowed_at'])
+
+
 class CheckEscrowTimeoutsTaskTests(APITestCase):
     """Job Beat 24h : transferts bloqués en ESCROWED > 24h → refund forcé."""
 

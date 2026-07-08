@@ -2,6 +2,8 @@
 
 import { cookies } from 'next/headers';
 
+import type { TransactionStatus } from '@/lib/transferTimeline';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 export interface TransferSimulation {
@@ -87,4 +89,43 @@ export const initiateTransfer = async (
     ?? (err as { detail?: string }).detail
     ?? `Erreur ${res.status}`;
   throw new Error(msg);
+};
+
+export interface TransferStatus {
+  transaction_id: string;
+  status: TransactionStatus;
+  amount_eur: string;
+  fees_eur: string;
+  amount_xaf: string;
+  beneficiary_name: string;
+  beneficiary_country: string;
+  operator: 'MTN_MOMO' | 'ORANGE_MONEY' | string;
+  escrow_tx_hash: string | null;
+  payout_reference: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  escrowed_at: string | null;
+}
+
+export const getTransferStatus = async (
+  id: string,
+): Promise<TransferStatus> => {
+  const jar = await cookies();
+  const token = jar.get('krypt-access-token')?.value;
+  if (!token) throw new Error('Non authentifié');
+
+  const res = await fetch(`${API_BASE}/api/transfer/${id}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err as { error?: string; detail?: string }).error
+      ?? (err as { detail?: string }).detail
+      ?? `Erreur ${res.status}`;
+    throw new Error(msg);
+  }
+
+  return res.json();
 };

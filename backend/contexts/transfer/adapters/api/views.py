@@ -249,6 +249,28 @@ class TransferStatusView(APIView):
                 "fees_eur": str(transaction.fees_eur),
                 "amount_xaf": str(transaction.amount_xaf),
                 "beneficiary_name": transaction.beneficiary_name,
+                # KRYP-27 — champs additionnels (lecture seule) pour la timeline
+                # de suivi temps réel. Déjà peuplés sur l'entité par _to_entity ;
+                # aucune migration ni changement de logique métier.
+                "beneficiary_country": transaction.beneficiary_country,
+                "operator": transaction.operator,
+                "escrow_tx_hash": transaction.escrow_tx_hash,
+                "payout_reference": transaction.payout_reference,
+                "created_at": (
+                    transaction.created_at.isoformat()
+                    if transaction.created_at
+                    else None
+                ),
+                "updated_at": (
+                    transaction.updated_at.isoformat()
+                    if transaction.updated_at
+                    else None
+                ),
+                "escrowed_at": (
+                    transaction.escrowed_at.isoformat()
+                    if transaction.escrowed_at
+                    else None
+                ),
             },
             status=status.HTTP_200_OK,
         )
