@@ -105,6 +105,9 @@ export interface TransferStatus {
   created_at: string | null;
   updated_at: string | null;
   escrowed_at: string | null;
+  // KRYP-27 — lot Merkle Polygon de l'événement de livraison (null tant que non batché).
+  batch_id: number | null;
+  batch_tx_hash: string | null;
 }
 
 export const getTransferStatus = async (

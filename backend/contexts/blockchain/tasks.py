@@ -26,7 +26,8 @@ def submit_audit_batch_task() -> dict:
         return {"submitted": False, "count": 0}
 
     leaves = [row.leaf_hash for row in pending]
-    root_hex = MerkleTree(leaves).root_hex()
+    tree = MerkleTree(leaves)
+    root_hex = tree.root_hex()
 
     # batch_id monotone croissant côté Django (Beat mono-worker : pas de collision
     # réaliste). Le contrat reverte de toute façon si le batchId existe déjà.
@@ -40,8 +41,19 @@ def submit_audit_batch_task() -> dict:
         batch_id, root_hex, len(pending), period_start, period_end
     )
 
-    ids = [row.id for row in pending]
-    PendingAuditHash.objects.filter(id__in=ids).update(batched=True, batch_id=batch_id)
+    # KRYP-27 — persister par ligne : le batch (batched/batch_id/batch_tx_hash sont
+    # identiques pour tout le lot) ET la preuve de Merkle individuelle (différente
+    # par ligne, donc pas de bulk .update()). tree.proof() renvoie une liste de
+    # bytes ; on la convertit en chaînes hex ("0x…") conformément à la convention
+    # du port BlockchainServicePort.
+    for row in pending:
+        row.batched = True
+        row.batch_id = batch_id
+        row.batch_tx_hash = tx_hash
+        row.merkle_proof = ["0x" + node.hex() for node in tree.proof(row.leaf_hash)]
+    PendingAuditHash.objects.bulk_update(
+        pending, ["batched", "batch_id", "batch_tx_hash", "merkle_proof"]
+    )
 
     logger.info(
         "submit_audit_batch: batch %s soumis (%s hashes, tx=%s)",

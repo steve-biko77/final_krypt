@@ -46,6 +46,7 @@ def escrow_lock_task(self, transaction_id: str) -> dict:
                 leaf_hash = "0x" + leaf_hash
             PendingAuditHash.objects.create(
                 transaction_id=transaction_id,
+                event_type=PendingAuditHash.EVENT_ESCROWED,
                 leaf_hash=leaf_hash,
             )
             # KRYP-26 — funds secured on-chain: trigger the mobile-money payout.

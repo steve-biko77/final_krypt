@@ -112,11 +112,27 @@ export default function TransferTimeline({ steps }: { steps: TimelineStep[] }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 mt-2 text-12 font-medium text-blue-600 hover:text-blue-700 hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
                 >
-                  <span className="font-mono">
-                    {step.txHash.slice(0, 10)}…{step.txHash.slice(-8)}
-                  </span>
-                  <ExternalLink size={12} aria-hidden="true" />
-                  <span className="sr-only">Voir la transaction sur Polygonscan</span>
+                  {step.batchId != null ? (
+                    // Preuve d'inclusion dans un lot Merkle AuditTrail (KRYP-27) —
+                    // volontairement distincte d'un lien de transaction dédiée :
+                    // ce hash prouve l'ancrage du lot, pas une transaction propre
+                    // à ce transfert.
+                    <>
+                      <span>Inclus dans le lot Polygon #{step.batchId}</span>
+                      <ExternalLink size={12} aria-hidden="true" />
+                      <span className="sr-only">
+                        Voir la preuve d&apos;inclusion du lot sur Polygonscan
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono">
+                        {step.txHash.slice(0, 10)}…{step.txHash.slice(-8)}
+                      </span>
+                      <ExternalLink size={12} aria-hidden="true" />
+                      <span className="sr-only">Voir la transaction sur Polygonscan</span>
+                    </>
+                  )}
                 </a>
               )}
             </div>

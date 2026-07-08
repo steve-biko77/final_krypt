@@ -123,5 +123,6 @@ class ProcessPayoutUseCase:
             leaf_hash = "0x" + leaf_hash
         PendingAuditHash.objects.create(
             transaction_id=transaction_id,
+            event_type=PendingAuditHash.EVENT_DELIVERED,
             leaf_hash=leaf_hash,
         )

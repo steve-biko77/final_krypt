@@ -481,6 +481,8 @@ class EscrowLockTaskTests(APITestCase):
         row = rows.first()
         self.assertFalse(row.batched)
         self.assertTrue(row.leaf_hash.startswith('0x'))
+        # KRYP-27 — event_type discrimine cette ligne de la future ligne DELIVERED.
+        self.assertEqual(row.event_type, PendingAuditHash.EVENT_ESCROWED)
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'ESCROWED')
 
@@ -594,6 +596,8 @@ class ProcessPayoutUseCaseTests(APITestCase):
         if not expected.startswith('0x'):
             expected = '0x' + expected
         self.assertEqual(rows.first().leaf_hash, expected)
+        # KRYP-27 — event_type discrimine cette ligne de la ligne ESCROWED.
+        self.assertEqual(rows.first().event_type, PendingAuditHash.EVENT_DELIVERED)
         blockchain.log_critical_event.assert_not_called()
 
     def test_payout_failure_orange_then_refund(self):
@@ -713,6 +717,75 @@ class TransferStatusViewTests(APITestCase):
         self.assertIsNone(res.data['escrow_tx_hash'])
         self.assertIsNone(res.data['payout_reference'])
         self.assertIsNone(res.data['escrowed_at'])
+
+    def test_status_batch_fields_null_when_not_yet_batched(self):
+        """Aucune ligne PendingAuditHash DELIVERED batchée → batch_id/batch_tx_hash nuls."""
+        txn = self._create_transaction(status='DELIVERED')
+
+        res = self.client.get(f'/api/transfer/{txn.id}/status')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data['batch_id'])
+        self.assertIsNone(res.data['batch_tx_hash'])
+
+    def test_status_batch_fields_use_delivered_row_not_escrowed_row(self):
+        """KRYP-27 — un même transaction_id porte DEUX PendingAuditHash (ESCROWED
+        et DELIVERED), potentiellement batchées dans des lots différents. La vue
+        doit retourner le batch_id/batch_tx_hash de la ligne DELIVERED, jamais
+        celui de la ligne ESCROWED — même si celle-ci a été créée/batchée avant."""
+        from contexts.blockchain.models import PendingAuditHash
+        txn = self._create_transaction(status='DELIVERED')
+        PendingAuditHash.objects.create(
+            transaction_id=str(txn.id),
+            event_type=PendingAuditHash.EVENT_ESCROWED,
+            leaf_hash='0x' + 'a' * 64,
+            batched=True,
+            batch_id=1,
+            batch_tx_hash='0xescrowbatch',
+        )
+        PendingAuditHash.objects.create(
+            transaction_id=str(txn.id),
+            event_type=PendingAuditHash.EVENT_DELIVERED,
+            leaf_hash='0x' + 'b' * 64,
+            batched=True,
+            batch_id=2,
+            batch_tx_hash='0xdeliveredbatch',
+        )
+
+        res = self.client.get(f'/api/transfer/{txn.id}/status')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['batch_id'], 2)
+        self.assertEqual(res.data['batch_tx_hash'], '0xdeliveredbatch')
+        # La preuve de Merkle ne doit jamais fuiter dans la réponse API.
+        self.assertNotIn('merkle_proof', res.data)
+
+    def test_status_batch_fields_null_when_delivered_row_not_batched_yet(self):
+        """La ligne DELIVERED existe mais n'a pas encore été incluse dans un lot
+        (fenêtre de 15 min) → batch_id/batch_tx_hash restent nuls, même si une
+        ligne ESCROWED correspondante est déjà batchée."""
+        from contexts.blockchain.models import PendingAuditHash
+        txn = self._create_transaction(status='DELIVERED')
+        PendingAuditHash.objects.create(
+            transaction_id=str(txn.id),
+            event_type=PendingAuditHash.EVENT_ESCROWED,
+            leaf_hash='0x' + 'a' * 64,
+            batched=True,
+            batch_id=1,
+            batch_tx_hash='0xescrowbatch',
+        )
+        PendingAuditHash.objects.create(
+            transaction_id=str(txn.id),
+            event_type=PendingAuditHash.EVENT_DELIVERED,
+            leaf_hash='0x' + 'b' * 64,
+            batched=False,
+        )
+
+        res = self.client.get(f'/api/transfer/{txn.id}/status')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data['batch_id'])
+        self.assertIsNone(res.data['batch_tx_hash'])
 
 
 class CheckEscrowTimeoutsTaskTests(APITestCase):

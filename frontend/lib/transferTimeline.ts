@@ -36,8 +36,19 @@ export interface TimelineStep {
   status: StepStatus;
   /** ISO timestamp, uniquement pour les étapes atteintes (done/active/error). */
   timestamp?: string;
-  /** Hash on-chain réel — jamais un placeholder. Seule l'étape 3 (escrow) en a un. */
+  /**
+   * Hash on-chain réel — jamais un placeholder. L'étape 3 (escrow) porte le hash
+   * d'une transaction dédiée ; l'étape 5 (livraison) porte le hash de la
+   * transaction du LOT Merkle (voir batchId) prouvant l'inclusion de l'événement.
+   */
   txHash?: string;
+  /**
+   * KRYP-27 — présent uniquement sur l'étape 5 quand la livraison a rejoint un
+   * lot Merkle AuditTrail. Distingue un hash "preuve d'inclusion dans un lot"
+   * d'un hash de transaction dédiée (étape escrow), pour rester honnête sur ce
+   * que le lien prouve réellement.
+   */
+  batchId?: number;
 }
 
 /**
@@ -110,6 +121,9 @@ export interface TimelineInput {
   createdAt?: string | null;
   updatedAt?: string | null;
   escrowedAt?: string | null;
+  /** KRYP-27 — lot Merkle AuditTrail de l'événement de livraison (null si non encore batché). */
+  batchTxHash?: string | null;
+  batchId?: number | null;
 }
 
 /**
@@ -117,9 +131,10 @@ export interface TimelineInput {
  *
  * Table de correspondance (voir ticket KRYP-27) — implémentée exactement.
  * Un timestamp n'est posé que sur les étapes atteintes. Le lien Polygonscan
- * (txHash) n'est jamais posé sur une étape sans preuve on-chain réelle : seule
- * l'étape 3 reçoit escrow_tx_hash, l'étape 5 n'expose que payout_reference en
- * texte brut (aucun hash per-transaction n'est persisté pour l'AuditTrail).
+ * (txHash) n'est jamais posé sur une étape sans preuve on-chain réelle : l'étape
+ * 3 reçoit escrow_tx_hash (transaction dédiée) ; l'étape 5 reçoit le hash du LOT
+ * Merkle AuditTrail (batch_tx_hash + batch_id) uniquement une fois la livraison
+ * ancrée on-chain — preuve d'inclusion dans un lot, pas transaction dédiée.
  */
 export function buildTimeline(input: TimelineInput): TimelineStep[] {
   const {
@@ -131,6 +146,8 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
     createdAt,
     updatedAt,
     escrowedAt,
+    batchTxHash,
+    batchId,
   } = input;
 
   const opLabel = operatorLabel(operator);
@@ -155,7 +172,14 @@ export function buildTimeline(input: TimelineInput): TimelineStep[] {
   const step4 = buildPayoutStep(status, opLabel, updatedAt);
 
   // Étape 5 — Livré.
-  const step5 = buildDeliveredStep(status, prenom, payoutReference, updatedAt);
+  const step5 = buildDeliveredStep(
+    status,
+    prenom,
+    payoutReference,
+    updatedAt,
+    batchTxHash,
+    batchId,
+  );
 
   return [step1, step2, step3, step4, step5];
 }
@@ -290,16 +314,24 @@ function buildDeliveredStep(
   prenom: string,
   payoutReference?: string | null,
   updatedAt?: string | null,
+  batchTxHash?: string | null,
+  batchId?: number | null,
 ): TimelineStep {
   const base = { key: 'delivered' as const, label: 'Fonds livrés' };
 
   if (status === 'DELIVERED') {
     const ref = payoutReference ? ` · Réf. ${payoutReference}` : '';
+    // Lien on-chain uniquement si l'événement de livraison a rejoint un lot
+    // Merkle (batch_tx_hash + batch_id). Tant que le lot n'est pas soumis
+    // (fenêtre de 15 min), aucun lien — jamais de placeholder.
+    const batched = batchTxHash != null && batchId != null;
     return {
       ...base,
       description: `Reçus par ${prenom}${ref}`,
       status: 'done',
       timestamp: updatedAt ?? undefined,
+      txHash: batched ? batchTxHash : undefined,
+      batchId: batched ? batchId : undefined,
     };
   }
   return { ...base, description: 'Fonds crédités sur le compte Mobile Money', status: 'pending' };

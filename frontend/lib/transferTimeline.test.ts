@@ -78,10 +78,12 @@ describe('lien Polygonscan (txHash) — preuve on-chain réelle uniquement', () 
     }
   })
 
-  it('n’expose jamais de txHash sur l’étape 5 (aucun hash AuditTrail persisté)', () => {
+  it('n’expose jamais de txHash sur l’étape 5 tant que le lot n’est pas soumis', () => {
+    // BASE ne fournit ni batchTxHash ni batchId → aucun lien sur l'étape 5.
     for (const status of ALL_STATUSES) {
       const steps = buildTimeline({ ...BASE, status })
       expect(steps[4].txHash).toBeUndefined()
+      expect(steps[4].batchId).toBeUndefined()
     }
   })
 
@@ -90,6 +92,43 @@ describe('lien Polygonscan (txHash) — preuve on-chain réelle uniquement', () 
       const steps = buildTimeline({ ...BASE, status })
       expect(steps[2].txHash).toBeUndefined()
     }
+  })
+})
+
+describe('étape 5 — lot Merkle Polygon de l’événement de livraison (KRYP-27)', () => {
+  it('DELIVERED avec batchTxHash/batchId → étape 5 porte txHash + batchId', () => {
+    const steps = buildTimeline({
+      ...BASE,
+      status: 'DELIVERED',
+      batchTxHash: '0xbatch1234567890abcdef',
+      batchId: 42,
+    })
+    expect(steps[4].txHash).toBe('0xbatch1234567890abcdef')
+    expect(steps[4].batchId).toBe(42)
+    // Le hash du lot ne fuit jamais sur l'étape escrow (qui garde son propre hash).
+    expect(steps[2].txHash).toBe(BASE.escrowTxHash)
+  })
+
+  it('DELIVERED sans lot encore soumis → étape 5 sans lien (ni txHash ni batchId)', () => {
+    const steps = buildTimeline({
+      ...BASE,
+      status: 'DELIVERED',
+      batchTxHash: null,
+      batchId: null,
+    })
+    expect(steps[4].txHash).toBeUndefined()
+    expect(steps[4].batchId).toBeUndefined()
+  })
+
+  it('batchId sans batchTxHash (état incohérent) → aucun lien, pas de crash', () => {
+    const steps = buildTimeline({
+      ...BASE,
+      status: 'DELIVERED',
+      batchTxHash: null,
+      batchId: 7,
+    })
+    expect(steps[4].txHash).toBeUndefined()
+    expect(steps[4].batchId).toBeUndefined()
   })
 })
 

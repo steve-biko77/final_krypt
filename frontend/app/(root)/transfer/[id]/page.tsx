@@ -123,6 +123,8 @@ export default function TransferTrackingPage() {
     createdAt: data.created_at,
     updatedAt: data.updated_at,
     escrowedAt: data.escrowed_at,
+    batchTxHash: data.batch_tx_hash,
+    batchId: data.batch_id,
   })
 
   return (

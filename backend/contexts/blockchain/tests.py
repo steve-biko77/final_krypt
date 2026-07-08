@@ -248,11 +248,12 @@ class MerkleTreeTests(SimpleTestCase):
 
 class SubmitAuditBatchTaskTests(TestCase):
 
-    def _pending(self, transaction_id: str):
+    def _pending(self, transaction_id: str, event_type: str = "", leaf: str = None):
         from contexts.blockchain.models import PendingAuditHash
         return PendingAuditHash.objects.create(
             transaction_id=transaction_id,
-            leaf_hash=_leaf(transaction_id),
+            event_type=event_type,
+            leaf_hash=leaf or _leaf(transaction_id),
         )
 
     @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
@@ -282,6 +283,77 @@ class SubmitAuditBatchTaskTests(TestCase):
         rows = PendingAuditHash.objects.filter(transaction_id__in=ids)
         self.assertTrue(all(r.batched for r in rows))
         self.assertEqual({r.batch_id for r in rows}, {batch_id})
+
+    @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
+    def test_batch_tx_hash_and_merkle_proof_persisted(self, mock_service_cls):
+        """KRYP-27 — après soumission, chaque ligne porte le batch_tx_hash du lot
+        et sa propre preuve de Merkle (liste de chaînes hex, différente par ligne)."""
+        from contexts.blockchain.domain.merkle import verify_proof
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.blockchain.tasks import submit_audit_batch_task
+
+        ids = ["tx-1", "tx-2", "tx-3"]
+        for i in ids:
+            self._pending(i)
+        mock_service_cls.return_value.submit_audit_batch.return_value = "0xbatchtx"
+
+        result = submit_audit_batch_task()
+
+        expected_root = MerkleTree([_leaf(i) for i in ids]).root_hex()
+        rows = list(PendingAuditHash.objects.filter(transaction_id__in=ids))
+        for row in rows:
+            self.assertEqual(row.batch_tx_hash, "0xbatchtx")
+            # Preuve : liste de chaînes hex "0x…" qui vérifie contre la racine.
+            self.assertIsInstance(row.merkle_proof, list)
+            for node in row.merkle_proof:
+                self.assertTrue(node.startswith("0x"))
+            self.assertTrue(
+                verify_proof(row.leaf_hash, row.merkle_proof, expected_root),
+                msg=f"la preuve de {row.transaction_id} doit vérifier contre la racine",
+            )
+        self.assertEqual(result["tx_hash"], "0xbatchtx")
+
+    @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
+    def test_event_type_disambiguates_escrow_vs_delivered_rows(self, mock_service_cls):
+        """KRYP-27 — un transfert a DEUX lignes (ESCROWED + DELIVERED) partageant
+        le même transaction_id ; le filtre event_type='DELIVERED' isole la bonne.
+
+        Les deux lignes peuvent atterrir dans des lots distincts : on soumet un
+        premier lot (ESCROWED seul), puis un second (DELIVERED seul), et on
+        vérifie que le batch récupéré par event_type est bien celui de livraison.
+        """
+        from contexts.blockchain.models import PendingAuditHash
+        from contexts.blockchain.tasks import submit_audit_batch_task
+
+        txid = "tx-shared"
+        # 1er lot : uniquement la feuille ESCROWED.
+        self._pending(txid, event_type=PendingAuditHash.EVENT_ESCROWED, leaf=_leaf(f"{txid}:E"))
+        mock_service_cls.return_value.submit_audit_batch.return_value = "0xescrowbatch"
+        r1 = submit_audit_batch_task()
+
+        # 2e lot : uniquement la feuille DELIVERED (créée après le 1er lot).
+        self._pending(txid, event_type=PendingAuditHash.EVENT_DELIVERED, leaf=_leaf(f"{txid}:D"))
+        mock_service_cls.return_value.submit_audit_batch.return_value = "0xdeliveredbatch"
+        r2 = submit_audit_batch_task()
+
+        self.assertNotEqual(r1["batch_id"], r2["batch_id"])
+
+        delivered = PendingAuditHash.objects.filter(
+            transaction_id=txid,
+            event_type=PendingAuditHash.EVENT_DELIVERED,
+            batched=True,
+        ).first()
+        escrowed = PendingAuditHash.objects.filter(
+            transaction_id=txid,
+            event_type=PendingAuditHash.EVENT_ESCROWED,
+            batched=True,
+        ).first()
+
+        # Chaque ligne pointe vers SON lot — pas de confusion.
+        self.assertEqual(delivered.batch_tx_hash, "0xdeliveredbatch")
+        self.assertEqual(delivered.batch_id, r2["batch_id"])
+        self.assertEqual(escrowed.batch_tx_hash, "0xescrowbatch")
+        self.assertEqual(escrowed.batch_id, r1["batch_id"])
 
     @mock.patch("contexts.blockchain.adapters.services.web3_blockchain_service.Web3BlockchainService")
     def test_merkle_batch_skipped_when_empty(self, mock_service_cls):

@@ -12,11 +12,23 @@ class PendingAuditHash(models.Model):
     rows ``batched`` with the assigned ``batch_id``.
     """
 
+    # KRYP-27 — un même transfert produit deux lignes au cours de son cycle de
+    # vie, partageant le même ``transaction_id`` : la feuille ESCROWED (verrou
+    # escrow) et la feuille DELIVERED (payout). ``event_type`` lève l'ambiguïté
+    # pour retrouver le batch de l'événement de livraison spécifiquement.
+    EVENT_ESCROWED = "ESCROWED"
+    EVENT_DELIVERED = "DELIVERED"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     transaction_id = models.CharField(max_length=100, db_index=True)
+    event_type = models.CharField(max_length=20, default="", blank=True)
     leaf_hash = models.CharField(max_length=66)
     batched = models.BooleanField(default=False, db_index=True)
     batch_id = models.IntegerField(null=True, blank=True)
+    # KRYP-27 — hash de la transaction Polygon du batch (preuve d'inclusion),
+    # et preuve de Merkle par ligne (persistée uniquement, non exposée par l'API).
+    batch_tx_hash = models.CharField(max_length=100, null=True, blank=True)
+    merkle_proof = models.JSONField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -241,6 +241,20 @@ class TransferStatusView(APIView):
                 {"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN
             )
 
+        # KRYP-27 — batch Polygon de l'événement de LIVRAISON spécifiquement.
+        # Un transfert produit deux PendingAuditHash (ESCROWED puis DELIVERED),
+        # potentiellement dans des lots différents : on filtre sur event_type
+        # pour lever l'ambiguïté. Null tant que la livraison n'est pas batchée
+        # (fenêtre de 15 min). merkle_proof reste en base, jamais exposé ici.
+        from contexts.blockchain.models import PendingAuditHash
+        delivered_audit = (
+            PendingAuditHash.objects.filter(
+                transaction_id=transaction.id,
+                event_type=PendingAuditHash.EVENT_DELIVERED,
+                batched=True,
+            ).first()
+        )
+
         return Response(
             {
                 "transaction_id": transaction.id,
@@ -270,6 +284,12 @@ class TransferStatusView(APIView):
                     transaction.escrowed_at.isoformat()
                     if transaction.escrowed_at
                     else None
+                ),
+                # KRYP-27 — traçabilité de l'étape "Fonds livrés" : lot Merkle
+                # AuditTrail dans lequel l'événement DELIVERED a été ancré.
+                "batch_id": delivered_audit.batch_id if delivered_audit else None,
+                "batch_tx_hash": (
+                    delivered_audit.batch_tx_hash if delivered_audit else None
                 ),
             },
             status=status.HTTP_200_OK,
