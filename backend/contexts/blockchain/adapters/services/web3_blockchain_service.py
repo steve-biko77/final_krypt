@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.conf import settings
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 
 from ...ports.blockchain_service import BlockchainServicePort
 
@@ -90,6 +91,10 @@ class Web3BlockchainService(BlockchainServicePort):
             if not self._rpc_url:
                 raise BlockchainConfigError("BLOCKCHAIN_RPC_URL is not configured.")
             self._w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            # Polygon is a PoA chain: its blocks' extraData field exceeds the 32
+            # bytes web3.py expects by default (designed for classic Ethereum
+            # mainnet), raising ExtraDataLengthError without this middleware.
+            self._w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         return self._w3
 
     def _signer(self):
@@ -123,7 +128,10 @@ class Web3BlockchainService(BlockchainServicePort):
         signed = w3.eth.account.sign_transaction(tx, self._private_key)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
         w3.eth.wait_for_transaction_receipt(tx_hash)
-        return tx_hash.hex()
+        # This installed hexbytes/web3.py version's HexBytes.hex() no longer
+        # auto-prefixes with "0x" (older versions did) — normalize explicitly.
+        hex_str = tx_hash.hex()
+        return hex_str if hex_str.startswith("0x") else "0x" + hex_str
 
     # ------------------------------------------------------------------ ports
     def submit_audit_batch(
