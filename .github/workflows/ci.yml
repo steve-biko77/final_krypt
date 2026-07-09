@@ -99,6 +99,25 @@ jobs:
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
 
+      # ── KRYP-37 : visibilité dédiée du temps du test E2E (mode mocké) ─
+      # Déjà exécuté ci-dessus par `manage.py test` (couverture bloquante) ;
+      # ce step ne fait que le ré-exécuter seul via pytest --durations pour que
+      # son temps ne soit pas noyé dans le total de la suite complète.
+      - name: E2E test timing (mock mode)
+        run: python -m pytest tests_integration_e2e.py::EndToEndTransferFlowTests -v --durations=0
+        working-directory: backend
+        env:
+          DEBUG: "True"
+          SECRET_KEY: ci-insecure-secret-key-for-testing-only
+          DB_NAME: krypt_test
+          DB_USER: krypt
+          DB_PASSWORD: krypt_secret
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: ci_minio_key
+          MINIO_SECRET_KEY: ci_minio_secret
+
       # ── Frontend tests (aucun pour l'instant) ─
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -116,12 +135,18 @@ jobs:
         working-directory: frontend
 
   # ─────────────────────────────────────────────
-  # Job — Tests d'intégration Stripe (sandbox réelle)
-  # Déclenché manuellement (workflow_dispatch) et uniquement si le secret existe.
-  # Hors du pipeline bloquant : n'est pas dans `needs:` du job build.
+  # Job — Tests d'intégration + E2E réel (sandboxes réelles : Stripe/Amoy/MTN)
+  # Déclenché manuellement (workflow_dispatch) et uniquement si le secret Stripe
+  # existe. Hors du pipeline bloquant : n'est pas dans `needs:` du job build.
+  # KRYP-37 — regroupe ici `pytest -m e2e_real` (parcours complet, démo/soutenance)
+  # avec les tests `@pytest.mark.integration` déjà en place (KRYP-23/25/26) plutôt
+  # que de dupliquer un job quasi identique : même gate, mêmes services, mêmes
+  # credentials sandbox. Chaque test individuel (integration ou e2e_real) skip
+  # proprement si SES propres credentials (Amoy/MTN) manquent, indépendamment du
+  # secret Stripe qui gate le job.
   # ─────────────────────────────────────────────
   integration-tests:
-    name: Integration tests (Stripe sandbox)
+    name: Integration & E2E-real tests (sandboxes réelles)
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && secrets.STRIPE_SECRET_KEY != '' }}
 
@@ -154,7 +179,7 @@ jobs:
         run: pip install -r requirements.txt
         working-directory: backend
 
-      - name: Run Stripe integration tests
+      - name: Run integration tests (Stripe/Amoy/MTN, single-adapter)
         run: python -m pytest -m integration -v
         working-directory: backend
         env:
@@ -169,6 +194,35 @@ jobs:
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          AMOY_RPC_URL: ${{ secrets.AMOY_RPC_URL }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          MTN_SUBSCRIPTION_KEY: ${{ secrets.MTN_SUBSCRIPTION_KEY }}
+          MTN_API_USER: ${{ secrets.MTN_API_USER }}
+          MTN_API_KEY: ${{ secrets.MTN_API_KEY }}
+
+      # KRYP-37 — parcours complet avec les vrais adapters (démo/soutenance).
+      # Skip proprement (par test) si Amoy/MTN ne sont pas aussi configurés en
+      # secrets repo — seul Stripe est requis pour que ce job se déclenche du tout.
+      - name: Run E2E test (real mode — Stripe/Amoy/MTN sandboxes)
+        run: python -m pytest -m e2e_real -v
+        working-directory: backend
+        env:
+          DEBUG: "True"
+          SECRET_KEY: ci-insecure-secret-key-for-testing-only
+          DB_NAME: krypt_test
+          DB_USER: krypt
+          DB_PASSWORD: krypt_secret
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: ci_minio_key
+          MINIO_SECRET_KEY: ci_minio_secret
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          AMOY_RPC_URL: ${{ secrets.AMOY_RPC_URL }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          MTN_SUBSCRIPTION_KEY: ${{ secrets.MTN_SUBSCRIPTION_KEY }}
+          MTN_API_USER: ${{ secrets.MTN_API_USER }}
+          MTN_API_KEY: ${{ secrets.MTN_API_KEY }}
 
   # ─────────────────────────────────────────────
   # Job 3 — Build Docker images
