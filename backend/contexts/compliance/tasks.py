@@ -24,6 +24,9 @@ def analyze_kyc_task(document_id: str) -> dict:
         from contexts.identity.models import UserModel
         UserModel.objects.filter(pk=doc.user_id).update(is_kyc_verified=True)
 
+        from contexts.notification.tasks import notification_task
+        notification_task.delay("KYC_APPROVED", doc.user_id, {})
+
     return {
         "document_id": document_id,
         "status": doc.status.value,

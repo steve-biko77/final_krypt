@@ -90,6 +90,9 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        from contexts.notification.tasks import notification_task
+        notification_task.delay("USER_REGISTERED", user.id, {})
+
         user_model = UserModel.objects.get(pk=user.id)
         return Response(
             {"user": _user_to_dict(user), "tokens": _make_tokens(user_model)},

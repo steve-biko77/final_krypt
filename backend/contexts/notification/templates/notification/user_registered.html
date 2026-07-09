@@ -1,0 +1,14 @@
+{% extends "notification/_base_email.html" %}
+{% block title %}Bienvenue chez KRYPT{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;color:#00214F;">Bienvenue {{ recipient_name }}</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#344054;">
+  Votre compte KRYPT a été créé avec succès. Il vous reste une dernière étape
+  avant d'envoyer votre premier transfert : la vérification de votre identité (KYC).
+</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#344054;">
+  Cette vérification ne prend que quelques minutes et garantit la sécurité de
+  tous les transferts sur KRYPT.
+</p>
+{% include "notification/_cta_button.html" with cta_label="Compléter mon KYC" %}
+{% endblock %}

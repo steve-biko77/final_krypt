@@ -173,6 +173,20 @@ class InitiateTransferView(APIView):
                 status=status.HTTP_202_ACCEPTED,
             )
 
+        # KRYP-30 — notifie uniquement le chemin qui atteint effectivement
+        # PROCESSING après approbation AML (pas la revue manuelle ci-dessus, pas
+        # le chemin bloqué/annulé-en-course, cf. InitiateTransferUseCase).
+        from contexts.notification.tasks import notification_task
+        notification_task.delay(
+            "TRANSFER_INITIATED",
+            result.transaction.sender_id,
+            {
+                "beneficiary_name": result.transaction.beneficiary_name,
+                "amount_eur": str(result.transaction.amount_eur),
+                "cta_url": f"{settings.FRONTEND_BASE_URL}/transfer/{result.transaction.id}",
+            },
+        )
+
         return Response(
             {
                 "transaction_id": result.transaction.id,

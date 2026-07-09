@@ -1,0 +1,17 @@
+{% extends "notification/_base_email.html" %}
+{% block title %}Votre transfert KRYPT n'a pas abouti{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;color:#EF4444;">Transfert non abouti</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#344054;">
+  Bonjour {{ recipient_name }}, nous n'avons malheureusement pas pu finaliser
+  votre transfert vers {{ beneficiary_name }}.
+</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#344054;">
+  Pas d'inquiétude : les fonds vous sont intégralement remboursés, aucune action
+  n'est requise de votre part.
+</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#344054;">
+  Notre équipe support reste à votre disposition si vous avez la moindre question.
+</p>
+{% include "notification/_cta_button.html" with cta_label="Voir le détail" %}
+{% endblock %}

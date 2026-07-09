@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     "contexts.transfer",
     "contexts.blockchain",
     "contexts.mobile_money",
+    "contexts.notification",
 ]
 
 MIDDLEWARE = [
@@ -163,6 +164,24 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=0),
     },
 }
+
+# Notification (KRYP-30) — email via Django natif, backend console en dev (jamais
+# d'appel réseau hors prod ; voir contexts/notification/ports/notification_service.py
+# pour la décision de conception SendGrid-plus-tard). SMS entièrement mocké, pas
+# de config à prévoir pour ça.
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "KRYPT <no-reply@krypt.fr>")
+
+# URL de base du frontend, utilisée pour construire les liens de suivi dans les
+# emails de notification (KRYP-30).
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 
 LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"

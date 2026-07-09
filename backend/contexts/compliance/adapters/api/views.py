@@ -127,6 +127,9 @@ class KYCReviewView(APIView):
         from contexts.identity.models import UserModel
         if doc.status == KYCStatus.APPROVED_MANUAL:
             UserModel.objects.filter(pk=doc.user_id).update(is_kyc_verified=True)
+
+            from contexts.notification.tasks import notification_task
+            notification_task.delay("KYC_APPROVED", doc.user_id, {})
         elif doc.status == KYCStatus.REJECTED:
             UserModel.objects.filter(pk=doc.user_id).update(is_kyc_verified=False)
         # COMPLEMENT_REQUESTED: is_kyc_verified unchanged

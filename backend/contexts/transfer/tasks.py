@@ -74,6 +74,8 @@ def payout_task(self, transaction_id: str) -> dict:
     loop lives inside ``ProcessPayoutUseCase`` (which never raises on a payout
     failure — it resolves to DELIVERED or PAYOUT_FAILED internally).
     """
+    from django.conf import settings
+
     from contexts.blockchain.adapters.services.web3_blockchain_service import (
         Web3BlockchainService,
     )
@@ -98,6 +100,37 @@ def payout_task(self, transaction_id: str) -> dict:
             transaction_repo=repo,
         )
         result = use_case.execute(transaction_id)
+
+        # KRYP-30 — dispatché depuis la couche task (adapter), pas depuis le use
+        # case hexagonal. Remplace l'ancien stub `notify_beneficiary_sms` (KRYP-26) :
+        # le SMS de livraison part maintenant du port NotificationServicePort.
+        from contexts.notification.tasks import notification_task
+        if result.success:
+            notification_task.delay(
+                "TRANSFER_DELIVERED",
+                transaction.sender_id,
+                {
+                    "beneficiary_name": transaction.beneficiary_name,
+                    "amount_xaf": str(transaction.amount_xaf),
+                    "payout_reference": result.payout_reference,
+                    "beneficiary_momo_number": transaction.momo_number,
+                    "sms_message": (
+                        f"Votre transfert KRYPT {transaction_id} a été livré. "
+                        f"Réf: {result.payout_reference}"
+                    ),
+                    "cta_url": f"{settings.FRONTEND_BASE_URL}/transfer/{transaction_id}",
+                },
+            )
+        else:
+            notification_task.delay(
+                "TRANSFER_FAILED",
+                transaction.sender_id,
+                {
+                    "beneficiary_name": transaction.beneficiary_name,
+                    "cta_url": f"{settings.FRONTEND_BASE_URL}/transfer/{transaction_id}",
+                },
+            )
+
         return {
             "transaction_id": transaction_id,
             "success": result.success,

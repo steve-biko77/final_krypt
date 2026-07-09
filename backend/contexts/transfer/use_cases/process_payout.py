@@ -25,7 +25,6 @@ from typing import Callable, Optional
 
 from contexts.blockchain.ports.blockchain_service import BlockchainServicePort
 from contexts.mobile_money.ports.mobile_money_service import MobileMoneyServicePort
-from ..notifications import notify_beneficiary_sms
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +74,12 @@ class ProcessPayoutUseCase:
                     self._sleep(2 ** attempt)  # backoff 2, 4, 8, ...
                 continue
 
-            return self._on_success(transaction_id, momo_number, payout)
+            return self._on_success(transaction_id, payout)
 
         return self._on_failure(transaction_id)
 
     # ------------------------------------------------------------------ outcomes
-    def _on_success(self, transaction_id, momo_number, payout) -> ProcessPayoutResult:
+    def _on_success(self, transaction_id, payout) -> ProcessPayoutResult:
         # Libère l'escrow on-chain, marque DELIVERED avec la référence payout.
         self._blockchain.escrow_release(transaction_id)
         self._repo.mark_delivered(transaction_id, payout.payout_id)
@@ -90,10 +89,6 @@ class ProcessPayoutUseCase:
         # entrer en collision avec la feuille ESCROWED (KRYP-25).
         self._queue_delivered_audit_hash(transaction_id)
 
-        notify_beneficiary_sms(
-            momo_number,
-            f"Votre transfert KRYPT {transaction_id} a été livré. Réf: {payout.payout_id}",
-        )
         logger.info(
             "Transaction %s livrée (payout=%s)", transaction_id, payout.payout_id
         )
