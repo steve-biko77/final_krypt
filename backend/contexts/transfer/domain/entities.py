@@ -27,6 +27,7 @@ class TransactionStatus(str, Enum):
     DELIVERED = "DELIVERED"
     PAYMENT_FAILED = "PAYMENT_FAILED"
     PAYOUT_FAILED = "PAYOUT_FAILED"
+    CANCELLED = "CANCELLED"
 
 
 @dataclass

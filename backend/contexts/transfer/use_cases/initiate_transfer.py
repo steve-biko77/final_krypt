@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
@@ -6,10 +7,12 @@ from contexts.compliance.domain.entities import AMLDecision
 from contexts.compliance.use_cases.score_aml import ScoreAMLInput, ScoreAMLUseCase
 
 from ..domain.entities import Transaction, TransactionStatus
-from ..domain.exceptions import TransferBlockedError
+from ..domain.exceptions import PaymentServiceError, TransferBlockedError
 from ..ports.exchange_rate_service import ExchangeRateServicePort
 from ..ports.payment_service import PaymentServicePort
 from .simulate_transfer import SimulateTransferInput, SimulateTransferUseCase
+
+logger = logging.getLogger(__name__)
 
 _APPROVED_DECISIONS = {AMLDecision.AUTO_APPROVED, AMLDecision.MANUALLY_APPROVED}
 _BLOCKED_DECISIONS = {
@@ -86,14 +89,22 @@ class InitiateTransferUseCase:
 
         if decision in _BLOCKED_DECISIONS:
             transaction.status = TransactionStatus.AML_BLOCKED
-            self._transaction_repo.save(transaction)
+            saved = self._guarded_transition(transaction)
+            if saved is None:
+                # KRYP-28 point d'attention 2 : le transfert a été annulé pendant
+                # le scoring AML — ne pas écraser CANCELLED avec AML_BLOCKED.
+                current = self._transaction_repo.find_by_id(transaction.id)
+                return InitiateTransferResult(transaction=current, client_secret=None)
             raise TransferBlockedError()
 
         if decision not in _APPROVED_DECISIONS:
             # PENDING_REVIEW — do NOT call the payment service.
             transaction.status = TransactionStatus.AML_PENDING_REVIEW
-            transaction = self._transaction_repo.save(transaction)
-            return InitiateTransferResult(transaction=transaction, client_secret=None)
+            saved = self._guarded_transition(transaction)
+            if saved is None:
+                current = self._transaction_repo.find_by_id(transaction.id)
+                return InitiateTransferResult(transaction=current, client_secret=None)
+            return InitiateTransferResult(transaction=saved, client_secret=None)
 
         # Approved → create the Stripe payment intent.
         transaction.status = TransactionStatus.PROCESSING
@@ -101,7 +112,36 @@ class InitiateTransferUseCase:
             simulation.amount_eur, transaction.id
         )
         transaction.stripe_payment_intent_id = intent.payment_intent_id
-        transaction = self._transaction_repo.save(transaction)
+        saved = self._guarded_transition(transaction)
+        if saved is None:
+            # Annulé pendant l'appel Stripe : ne pas laisser le Payment Intent
+            # orphelin engagé — tentative best-effort d'annulation côté Stripe.
+            try:
+                self._payment_service.cancel_payment_intent(intent.payment_intent_id)
+            except PaymentServiceError:
+                logger.warning(
+                    "initiate_transfer: échec de l'annulation best-effort du PI "
+                    "%s après annulation concurrente de %s.",
+                    intent.payment_intent_id, transaction.id,
+                )
+            current = self._transaction_repo.find_by_id(transaction.id)
+            return InitiateTransferResult(transaction=current, client_secret=None)
         return InitiateTransferResult(
-            transaction=transaction, client_secret=intent.client_secret
+            transaction=saved, client_secret=intent.client_secret
         )
+
+    def _guarded_transition(self, transaction: Transaction) -> Optional[Transaction]:
+        """KRYP-28 point d'attention 2 — écrit le nouveau statut uniquement si la
+        ligne est toujours PENDING_AML en base. Si le transfert a été annulé
+        entre-temps (race avec CancelTransferUseCase), la transition est refusée
+        plutôt que d'écraser silencieusement CANCELLED."""
+        saved = self._transaction_repo.save_if_status(
+            transaction, TransactionStatus.PENDING_AML
+        )
+        if saved is None:
+            logger.warning(
+                "initiate_transfer: transition vers %s abandonnée pour %s — "
+                "statut modifié entre-temps (probablement annulé).",
+                transaction.status.value, transaction.id,
+            )
+        return saved

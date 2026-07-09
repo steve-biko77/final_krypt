@@ -7,11 +7,13 @@ import { AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react'
 
 import TransferTimeline from '@/components/TransferTimeline'
 import {
+  cancelTransfer,
   getTransferStatus,
   type TransferStatus,
 } from '@/lib/actions/transfer.actions'
 import {
   buildTimeline,
+  isCancellable,
   isTerminalStatus,
   overallState,
   overallStateLabel,
@@ -37,9 +39,11 @@ function OverallBadge({ data }: { data: TransferStatus }) {
   const cls =
     state === 'delivered'
       ? 'bg-green-100 text-green-700'
-      : state === 'error'
-        ? 'bg-red-100 text-red-700'
-        : 'bg-blue-100 text-blue-700'
+      : state === 'cancelled'
+        ? 'bg-gray-100 text-gray-600'
+        : state === 'error'
+          ? 'bg-red-100 text-red-700'
+          : 'bg-blue-100 text-blue-700'
   return (
     <span className={`inline-flex items-center px-3 py-1 rounded-full text-12 font-semibold ${cls}`}>
       {label}
@@ -54,6 +58,8 @@ export default function TransferTrackingPage() {
   const [data, setData] = useState<TransferStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -84,6 +90,28 @@ export default function TransferTrackingPage() {
     intervalRef.current = setInterval(fetchStatus, POLL_INTERVAL_MS)
     return stopPolling
   }, [id, fetchStatus, stopPolling])
+
+  const handleCancel = useCallback(async () => {
+    if (!id) return
+    const confirmed = window.confirm(
+      'Annuler ce transfert ? Cette action est irréversible.',
+    )
+    if (!confirmed) return
+
+    setCancelling(true)
+    setCancelError(null)
+    try {
+      const result = await cancelTransfer(id)
+      // Mise à jour immédiate de l'affichage — pas besoin d'attendre le
+      // prochain cycle de polling (KRYP-28).
+      setData((prev) => (prev ? { ...prev, status: result.status } : prev))
+      stopPolling()
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : "Échec de l'annulation")
+    } finally {
+      setCancelling(false)
+    }
+  }, [id, stopPolling])
 
   if (loading) {
     return (
@@ -144,6 +172,22 @@ export default function TransferTrackingPage() {
           <span className="text-13 font-normal text-gray-500"> · {data.beneficiary_country}</span>
         </p>
         <p className="text-12 text-gray-400 font-mono mt-1">Réf. {data.transaction_id}</p>
+
+        {isCancellable(data.status) && (
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-13 font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1"
+            >
+              {cancelling ? 'Annulation…' : 'Annuler le transfert'}
+            </button>
+            {cancelError && (
+              <p className="text-12 text-red-600 mt-1">{cancelError}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Timeline */}

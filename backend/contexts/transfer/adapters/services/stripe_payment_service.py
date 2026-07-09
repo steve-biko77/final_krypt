@@ -41,3 +41,10 @@ class StripePaymentService(PaymentServicePort):
         except stripe.error.StripeError as exc:
             raise PaymentServiceError(str(exc)) from exc
         return intent.status == "succeeded"
+
+    def cancel_payment_intent(self, payment_intent_id: str) -> None:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            stripe.PaymentIntent.cancel(payment_intent_id)
+        except stripe.error.StripeError as exc:
+            raise PaymentServiceError(str(exc)) from exc

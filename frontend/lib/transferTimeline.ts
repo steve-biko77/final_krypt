@@ -7,7 +7,7 @@
  * exposée.
  */
 
-/** Les 10 statuts réels de TransactionStatus (backend/contexts/transfer/domain/entities.py). */
+/** Les 11 statuts réels de TransactionStatus (backend/contexts/transfer/domain/entities.py). */
 export type TransactionStatus =
   | 'DRAFT'
   | 'PENDING_AML'
@@ -18,9 +18,10 @@ export type TransactionStatus =
   | 'ESCROW_FAILED'
   | 'DELIVERED'
   | 'PAYMENT_FAILED'
-  | 'PAYOUT_FAILED';
+  | 'PAYOUT_FAILED'
+  | 'CANCELLED';
 
-export type StepStatus = 'done' | 'active' | 'pending' | 'error';
+export type StepStatus = 'done' | 'active' | 'pending' | 'error' | 'cancelled';
 
 export type TimelineStepKey =
   | 'sent'
@@ -53,7 +54,7 @@ export interface TimelineStep {
 
 /**
  * Statuts terminaux : le polling doit s'arrêter dès qu'ils sont atteints.
- * (AML_BLOCKED, ESCROW_FAILED, PAYMENT_FAILED, DELIVERED, PAYOUT_FAILED.)
+ * (AML_BLOCKED, ESCROW_FAILED, PAYMENT_FAILED, DELIVERED, PAYOUT_FAILED, CANCELLED.)
  */
 const TERMINAL_STATUSES: ReadonlySet<TransactionStatus> = new Set<TransactionStatus>([
   'AML_BLOCKED',
@@ -61,6 +62,7 @@ const TERMINAL_STATUSES: ReadonlySet<TransactionStatus> = new Set<TransactionSta
   'PAYMENT_FAILED',
   'DELIVERED',
   'PAYOUT_FAILED',
+  'CANCELLED',
 ]);
 
 /** True si le statut est terminal (arrêter le polling). */
@@ -68,11 +70,28 @@ export function isTerminalStatus(status: TransactionStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
+/**
+ * KRYP-28 — Statuts depuis lesquels un transfert peut encore être annulé
+ * (Fig. 7 : CANCELLED n'est accessible que depuis DRAFT ou PENDING_AML).
+ * Source unique de vérité pour la visibilité du bouton "Annuler" — ne pas
+ * dupliquer cette logique ailleurs dans l'UI.
+ */
+const CANCELLABLE_STATUSES: ReadonlySet<TransactionStatus> = new Set<TransactionStatus>([
+  'DRAFT',
+  'PENDING_AML',
+]);
+
+/** True si le transfert peut encore être annulé par l'utilisateur. */
+export function isCancellable(status: TransactionStatus): boolean {
+  return CANCELLABLE_STATUSES.has(status);
+}
+
 /** Overall badge utilisateur (jamais un statut backend brut). */
-export type OverallState = 'in_progress' | 'delivered' | 'error';
+export type OverallState = 'in_progress' | 'delivered' | 'error' | 'cancelled';
 
 export function overallState(status: TransactionStatus): OverallState {
   if (status === 'DELIVERED') return 'delivered';
+  if (status === 'CANCELLED') return 'cancelled';
   if (
     status === 'AML_BLOCKED' ||
     status === 'ESCROW_FAILED' ||
@@ -88,6 +107,8 @@ export function overallStateLabel(status: TransactionStatus): string {
   switch (overallState(status)) {
     case 'delivered':
       return 'Livré';
+    case 'cancelled':
+      return 'Annulé';
     case 'error':
       return status === 'AML_BLOCKED' ? 'Bloqué' : 'Échec';
     default:
@@ -215,6 +236,15 @@ function buildComplianceStep(
       timestamp: updatedAt ?? undefined,
     };
   }
+  if (status === 'CANCELLED') {
+    return {
+      ...base,
+      label: 'Transfert annulé',
+      description: 'Annulé avant confirmation du paiement',
+      status: 'cancelled',
+      timestamp: updatedAt ?? undefined,
+    };
+  }
   // PROCESSING, ESCROWED, ESCROW_FAILED, PAYMENT_FAILED, DELIVERED, PAYOUT_FAILED
   return {
     ...base,
@@ -237,6 +267,7 @@ function buildPaymentStep(
     case 'PENDING_AML':
     case 'AML_BLOCKED':
     case 'AML_PENDING_REVIEW':
+    case 'CANCELLED':
       return { ...base, description: 'En attente de paiement', status: 'pending' };
     case 'PROCESSING':
       return {

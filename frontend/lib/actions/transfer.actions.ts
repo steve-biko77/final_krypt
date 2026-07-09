@@ -132,3 +132,34 @@ export const getTransferStatus = async (
 
   return res.json();
 };
+
+export interface CancelTransferResult {
+  transaction_id: string;
+  status: TransactionStatus;
+}
+
+// KRYP-28 — annulation avant confirmation Stripe (Fig. 7 : DRAFT/PENDING_AML uniquement).
+export const cancelTransfer = async (
+  id: string,
+): Promise<CancelTransferResult> => {
+  const jar = await cookies();
+  const token = jar.get('krypt-access-token')?.value;
+  if (!token) throw new Error('Non authentifié');
+
+  const res = await fetch(`${API_BASE}/api/transfer/${id}/cancel`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err as { reason?: string; error?: string; detail?: string }).reason
+      ?? (err as { error?: string; detail?: string }).error
+      ?? (err as { detail?: string }).detail
+      ?? `Erreur ${res.status}`;
+    throw new Error(msg);
+  }
+
+  return res.json();
+};

@@ -24,7 +24,9 @@ from ...domain.exceptions import (
     InvalidAmountError,
     PaymentServiceError,
     TransferBlockedError,
+    TransferNotCancellableError,
 )
+from ...use_cases.cancel_transfer import CancelTransferUseCase
 from ...use_cases.initiate_transfer import (
     InitiateTransferInput,
     InitiateTransferUseCase,
@@ -291,6 +293,46 @@ class TransferStatusView(APIView):
                 "batch_tx_hash": (
                     delivered_audit.batch_tx_hash if delivered_audit else None
                 ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CancelTransferView(APIView):
+    """DELETE /api/transfer/<id>/cancel — annuler un transfert avant confirmation
+    Stripe (Fig. 7 : CANCELLED n'est accessible que depuis DRAFT/PENDING_AML)."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, id: str):
+        repo = DjangoORMTransactionRepository()
+        transaction = repo.find_by_id(id)
+        if not transaction:
+            return Response(
+                {"error": "Transaction introuvable"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if transaction.sender_id != str(request.user.pk) and not request.user.is_staff:
+            return Response(
+                {"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        use_case = CancelTransferUseCase(
+            payment_service=StripePaymentService(),
+            transaction_repo=repo,
+        )
+        try:
+            result = use_case.execute(id)
+        except TransferNotCancellableError as exc:
+            return Response(
+                {"error": "TRANSFER_NOT_CANCELLABLE", "reason": exc.reason},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "transaction_id": result.transaction.id,
+                "status": result.transaction.status.value,
             },
             status=status.HTTP_200_OK,
         )

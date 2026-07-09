@@ -19,3 +19,9 @@ class PaymentServicePort(ABC):
     @abstractmethod
     def confirm_payment(self, payment_intent_id: str) -> bool:
         """Return True if the payment intent has succeeded."""
+
+    @abstractmethod
+    def cancel_payment_intent(self, payment_intent_id: str) -> None:
+        """KRYP-28 — Cancel a payment intent. Defensive path: a Payment Intent is
+        normally only created once a transfer reaches PROCESSING, never while
+        DRAFT/PENDING_AML, so this is expected to run rarely."""

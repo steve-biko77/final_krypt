@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import {
   buildTimeline,
+  isCancellable,
   isTerminalStatus,
   overallState,
   overallStateLabel,
@@ -20,6 +21,7 @@ const ALL_STATUSES: TransactionStatus[] = [
   'DELIVERED',
   'PAYMENT_FAILED',
   'PAYOUT_FAILED',
+  'CANCELLED',
 ]
 
 const BASE = {
@@ -49,6 +51,7 @@ describe('buildTimeline — mapping statut → 5 étapes visuelles', () => {
     PAYMENT_FAILED: ['done', 'done', 'error', 'pending', 'pending'],
     DELIVERED: ['done', 'done', 'done', 'done', 'done'],
     PAYOUT_FAILED: ['done', 'done', 'done', 'error', 'pending'],
+    CANCELLED: ['done', 'cancelled', 'pending', 'pending', 'pending'],
   }
 
   for (const status of ALL_STATUSES) {
@@ -156,6 +159,7 @@ describe('isTerminalStatus — arrêt / poursuite du polling', () => {
     'PAYMENT_FAILED',
     'DELIVERED',
     'PAYOUT_FAILED',
+    'CANCELLED',
   ]
   const NON_TERMINAL: TransactionStatus[] = [
     'DRAFT',
@@ -177,7 +181,7 @@ describe('isTerminalStatus — arrêt / poursuite du polling', () => {
     })
   }
 
-  it('couvre les 10 statuts, sans oubli', () => {
+  it('couvre les 11 statuts, sans oubli', () => {
     expect([...TERMINAL, ...NON_TERMINAL].sort()).toEqual([...ALL_STATUSES].sort())
   })
 })
@@ -197,5 +201,40 @@ describe('overallState / overallStateLabel', () => {
   it('PROCESSING → en cours', () => {
     expect(overallState('PROCESSING')).toBe('in_progress')
     expect(overallStateLabel('PROCESSING')).toBe('En cours')
+  })
+  it('CANCELLED → annulé (jamais confondu avec une erreur)', () => {
+    expect(overallState('CANCELLED')).toBe('cancelled')
+    expect(overallStateLabel('CANCELLED')).toBe('Annulé')
+  })
+})
+
+describe('isCancellable — KRYP-28, visibilité du bouton "Annuler" (Fig. 7)', () => {
+  const CANCELLABLE: TransactionStatus[] = ['DRAFT', 'PENDING_AML']
+  const NOT_CANCELLABLE: TransactionStatus[] = [
+    'AML_BLOCKED',
+    'AML_PENDING_REVIEW',
+    'PROCESSING',
+    'ESCROWED',
+    'ESCROW_FAILED',
+    'DELIVERED',
+    'PAYMENT_FAILED',
+    'PAYOUT_FAILED',
+    'CANCELLED',
+  ]
+
+  for (const status of CANCELLABLE) {
+    it(`${status} → bouton "Annuler" visible`, () => {
+      expect(isCancellable(status)).toBe(true)
+    })
+  }
+
+  for (const status of NOT_CANCELLABLE) {
+    it(`${status} → bouton "Annuler" invisible`, () => {
+      expect(isCancellable(status)).toBe(false)
+    })
+  }
+
+  it('couvre les 11 statuts, sans oubli', () => {
+    expect([...CANCELLABLE, ...NOT_CANCELLABLE].sort()).toEqual([...ALL_STATUSES].sort())
   })
 })

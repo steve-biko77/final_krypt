@@ -49,6 +49,48 @@ class DjangoORMTransactionRepository:
     def update_status(self, id: str, status: TransactionStatus) -> None:
         TransactionModel.objects.filter(pk=uuid.UUID(id)).update(status=status.value)
 
+    def save_if_status(
+        self, transaction: Transaction, expected_status: TransactionStatus
+    ) -> Optional[Transaction]:
+        """KRYP-28 — Same field set as ``save()``, but the write only takes effect
+        if the row's current status still matches ``expected_status``. Guards the
+        post-AML-scoring writes in InitiateTransferUseCase against a concurrent
+        cancellation silently clobbering CANCELLED. Returns None (no write) if the
+        status had already moved on."""
+        updated = TransactionModel.objects.filter(
+            pk=uuid.UUID(transaction.id), status=expected_status.value
+        ).update(
+            beneficiary_name=transaction.beneficiary_name,
+            beneficiary_country=transaction.beneficiary_country,
+            momo_number=transaction.momo_number,
+            operator=transaction.operator,
+            amount_eur=transaction.amount_eur,
+            fees_eur=transaction.fees_eur,
+            amount_xaf=transaction.amount_xaf,
+            status=transaction.status.value,
+            aml_result_id=transaction.aml_result_id,
+            stripe_payment_intent_id=transaction.stripe_payment_intent_id,
+            escrow_tx_hash=transaction.escrow_tx_hash,
+        )
+        if updated == 0:
+            return None
+        return self.find_by_id(transaction.id)
+
+    def cancel_if_cancellable(self, id: str) -> Optional[Transaction]:
+        """KRYP-28 — Atomically transition to CANCELLED only if the row is still
+        DRAFT or PENDING_AML (Fig. 7). Returns the updated Transaction, or None if
+        it had already moved past that point."""
+        updated = TransactionModel.objects.filter(
+            pk=uuid.UUID(id),
+            status__in=[
+                TransactionStatus.DRAFT.value,
+                TransactionStatus.PENDING_AML.value,
+            ],
+        ).update(status=TransactionStatus.CANCELLED.value)
+        if updated == 0:
+            return None
+        return self.find_by_id(id)
+
     def mark_escrowed(self, id: str, tx_hash: str) -> None:
         """Persist the ESCROWED status, the on-chain tx hash and the precise
         ``escrowed_at`` timestamp in one update (the latter is the unambiguous

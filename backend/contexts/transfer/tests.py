@@ -295,6 +295,27 @@ class StripePaymentServiceTests(APITestCase):
         with self.assertRaises(PaymentServiceError):
             StripePaymentService().confirm_payment('pi_err')
 
+    @patch('stripe.PaymentIntent.cancel')
+    def test_cancel_payment_intent_calls_stripe(self, mock_cancel):
+        """KRYP-28 — cancel_payment_intent délègue à stripe.PaymentIntent.cancel()."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        StripePaymentService().cancel_payment_intent('pi_to_cancel')
+        mock_cancel.assert_called_once_with('pi_to_cancel')
+
+    @patch('stripe.PaymentIntent.cancel')
+    def test_cancel_payment_intent_handles_api_error(self, mock_cancel):
+        """cancel_payment_intent encapsule une StripeError en PaymentServiceError."""
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        from contexts.transfer.domain.exceptions import PaymentServiceError
+
+        mock_cancel.side_effect = stripe.error.StripeError('already canceled')
+        with self.assertRaises(PaymentServiceError):
+            StripePaymentService().cancel_payment_intent('pi_already_gone')
+
 
 class TransactionRepositoryTests(APITestCase):
     """Tests unitaires directs du repository ORM — chemins d'erreur/absence."""
@@ -849,3 +870,207 @@ class CheckEscrowTimeoutsTaskTests(APITestCase):
         blockchain.escrow_refund.assert_not_called()
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'ESCROWED')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-28 : annulation d'un transfert avant confirmation Stripe (Fig. 7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CancelTransferViewTests(APITestCase):
+    """DELETE /api/transfer/<id>/cancel — CANCELLED accessible uniquement depuis
+    DRAFT/PENDING_AML (Fig. 7)."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _create_transaction(self, **overrides):
+        from contexts.transfer.models import TransactionModel
+        defaults = dict(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('100.00'),
+            fees_eur=Decimal('1.50'),
+            amount_xaf=Decimal('64611.76'),
+            status='DRAFT',
+        )
+        defaults.update(overrides)
+        return TransactionModel.objects.create(**defaults)
+
+    def test_cancel_transfer_success_from_draft(self):
+        txn = self._create_transaction(status='DRAFT')
+        res = self.client.delete(f'/api/transfer/{txn.id}/cancel')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['status'], 'CANCELLED')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'CANCELLED')
+
+    def test_cancel_transfer_success_from_pending_aml(self):
+        txn = self._create_transaction(status='PENDING_AML')
+        res = self.client.delete(f'/api/transfer/{txn.id}/cancel')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['status'], 'CANCELLED')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'CANCELLED')
+
+    def test_cancel_transfer_fails_when_processing(self):
+        """PROCESSING est déjà au-delà de PENDING_AML (Fig. 7) → 400, message clair."""
+        txn = self._create_transaction(
+            status='PROCESSING', stripe_payment_intent_id='pi_live_1'
+        )
+        res = self.client.delete(f'/api/transfer/{txn.id}/cancel')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data['error'], 'TRANSFER_NOT_CANCELLABLE')
+        self.assertIn('PROCESSING', res.data['reason'])
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'PROCESSING')
+
+    def test_cancel_transfer_fails_when_already_delivered(self):
+        txn = self._create_transaction(status='DELIVERED')
+        res = self.client.delete(f'/api/transfer/{txn.id}/cancel')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data['error'], 'TRANSFER_NOT_CANCELLABLE')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'DELIVERED')
+
+    @patch('stripe.PaymentIntent.cancel')
+    def test_cancel_transfer_cancels_stripe_payment_intent_if_present(self, mock_cancel):
+        """Cas défensif (rare) : un payment_intent_id est présent alors que le
+        statut est encore DRAFT/PENDING_AML → cancel_payment_intent() est appelé."""
+        txn = self._create_transaction(
+            status='PENDING_AML', stripe_payment_intent_id='pi_orphan_1'
+        )
+        res = self.client.delete(f'/api/transfer/{txn.id}/cancel')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        mock_cancel.assert_called_once_with('pi_orphan_1')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'CANCELLED')
+
+    @patch('stripe.PaymentIntent.cancel')
+    def test_cancel_transfer_handles_stripe_cancellation_error_gracefully(self, mock_cancel):
+        """Stripe refuse (PI déjà confirmé/annulé côté Stripe) → l'annulation
+        locale n'échoue pas pour autant, tant que le statut local est annulable."""
+        mock_cancel.side_effect = stripe.error.StripeError('already canceled')
+        txn = self._create_transaction(
+            status='DRAFT', stripe_payment_intent_id='pi_orphan_2'
+        )
+        res = self.client.delete(f'/api/transfer/{txn.id}/cancel')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['status'], 'CANCELLED')
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'CANCELLED')
+
+    def test_cancel_transfer_not_found_returns_404(self):
+        res = self.client.delete(f'/api/transfer/{uuid.uuid4()}/cancel')
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', res.data)
+
+    def test_cancel_transfer_other_user_forbidden(self):
+        """NB : le ticket décrit un 404 pour 'n'appartient pas à l'utilisateur',
+        mais le pattern déjà en place dans ce fichier (TransferStatusView,
+        AMLResultView) renvoie 403 Forbidden pour une ressource existante mais non
+        possédée, jamais 404 — on reste cohérent avec ce pattern établi plutôt que
+        de le dupliquer différemment ici."""
+        txn = self._create_transaction(status='DRAFT')
+
+        other_client = APIClient()
+        other_user = dict(_USER)
+        other_user['email'] = 'other-cancel@krypt.fr'
+        other_user['phone'] = '+237699000099'
+        res = other_client.post(REGISTER_URL, other_user, format='json')
+        other_access = res.data['tokens']['access']
+        other_client.credentials(HTTP_AUTHORIZATION=f'Bearer {other_access}')
+
+        res = other_client.delete(f'/api/transfer/{txn.id}/cancel')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'DRAFT')
+
+
+class CancelTransferUseCaseRaceConditionTests(APITestCase):
+    """KRYP-28 point d'attention 2 — annulation reçue PENDANT que le scoring AML
+    tourne encore (même si, en pratique, ce scoring est synchrone dans la même
+    requête /initiate plutôt que via un Celery task séparé — cf. commentaire dans
+    score_aml_task). Le garde-fou doit empêcher la transition post-scoring
+    d'écraser silencieusement un CANCELLED déjà persisté."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+
+    @patch('stripe.PaymentIntent.cancel')
+    @patch('stripe.PaymentIntent.create')
+    def test_race_condition_cancel_during_aml_scoring_does_not_get_overwritten(
+        self, mock_create, mock_cancel
+    ):
+        from contexts.compliance.domain.entities import AMLDecision
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.adapters.services.fixed_exchange_rate import (
+            FixedExchangeRateService,
+        )
+        from contexts.transfer.adapters.services.stripe_payment_service import (
+            StripePaymentService,
+        )
+        from contexts.transfer.models import TransactionModel
+        from contexts.transfer.use_cases.initiate_transfer import (
+            InitiateTransferInput,
+            InitiateTransferUseCase,
+        )
+
+        mock_create.return_value = _mock_intent(intent_id='pi_race_1')
+        repo = DjangoORMTransactionRepository()
+
+        fake_aml_result = MagicMock()
+        fake_aml_result.id = 'aml-result-race'
+        fake_aml_result.combined_decision = AMLDecision.AUTO_APPROVED
+
+        def _score_then_concurrent_cancel(*args, **kwargs):
+            # Simule une requête DELETE /cancel arrivant PENDANT le scoring AML :
+            # la transaction est encore PENDING_AML en base à cet instant précis.
+            created = TransactionModel.objects.get(sender_id=uuid.UUID(self.user_id))
+            cancelled = repo.cancel_if_cancellable(str(created.id))
+            self.assertIsNotNone(cancelled, 'la course elle-même doit réussir à annuler')
+            return fake_aml_result
+
+        fake_aml_use_case = MagicMock()
+        fake_aml_use_case.execute.side_effect = _score_then_concurrent_cancel
+
+        use_case = InitiateTransferUseCase(
+            exchange_rate_service=FixedExchangeRateService(),
+            payment_service=StripePaymentService(),
+            aml_use_case=fake_aml_use_case,
+            transaction_repo=repo,
+        )
+
+        result = use_case.execute(
+            InitiateTransferInput(
+                sender_id=self.user_id,
+                beneficiary_name='Jean Mbarga',
+                beneficiary_country='CM',
+                momo_number='+237699000002',
+                operator='MTN_MOMO',
+                amount_eur=Decimal('50.00'),
+            )
+        )
+
+        # Le statut final doit rester CANCELLED, jamais écrasé par PROCESSING.
+        self.assertEqual(result.transaction.status.value, 'CANCELLED')
+        self.assertIsNone(result.client_secret)
+        txn = TransactionModel.objects.get(sender_id=uuid.UUID(self.user_id))
+        self.assertEqual(txn.status, 'CANCELLED')
+        # Le Payment Intent créé pendant la course ne doit pas rester orphelin :
+        # annulation best-effort côté Stripe.
+        mock_create.assert_called_once()
+        mock_cancel.assert_called_once_with('pi_race_1')

@@ -20,6 +20,7 @@ class TransactionStatus(models.TextChoices):
     DELIVERED = "DELIVERED", "Livré"
     PAYMENT_FAILED = "PAYMENT_FAILED", "Paiement échoué"
     PAYOUT_FAILED = "PAYOUT_FAILED", "Échec payout mobile money"
+    CANCELLED = "CANCELLED", "Annulé"
 
 
 class TransactionModel(models.Model):

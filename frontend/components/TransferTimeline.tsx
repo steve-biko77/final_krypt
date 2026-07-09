@@ -20,6 +20,8 @@ function statusAriaLabel(status: TimelineStep['status']): string {
       return 'Étape en cours'
     case 'error':
       return 'Étape en erreur'
+    case 'cancelled':
+      return 'Étape annulée'
     default:
       return 'Étape à venir'
   }
@@ -39,6 +41,13 @@ function StepIcon({ status }: { status: TimelineStep['status'] }) {
   if (status === 'error') {
     return (
       <span className={`${common} bg-red-100 text-red-700`} role="img" aria-label={label}>
+        <XCircle size={20} aria-hidden="true" />
+      </span>
+    )
+  }
+  if (status === 'cancelled') {
+    return (
+      <span className={`${common} bg-gray-200 text-gray-500`} role="img" aria-label={label}>
         <XCircle size={20} aria-hidden="true" />
       </span>
     )
@@ -70,6 +79,8 @@ function labelColor(status: TimelineStep['status']): string {
       return 'text-blue-700'
     case 'error':
       return 'text-red-700'
+    case 'cancelled':
+      return 'text-gray-500'
     default:
       return 'text-gray-400'
   }

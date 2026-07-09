@@ -33,6 +33,12 @@ def analyze_kyc_task(document_id: str) -> dict:
 
 @shared_task(name="compliance.score_aml")
 def score_aml_task(transaction_data: dict) -> dict:
+    # KRYP-28 — cette tâche ne touche jamais TransactionModel.status : la
+    # transition PENDING_AML -> {AML_BLOCKED, AML_PENDING_REVIEW, PROCESSING}
+    # est écrite par InitiateTransferUseCase (qui appelle ScoreAMLUseCase
+    # directement, pas cette tâche Celery). Le garde-fou anti-course avec une
+    # annulation concurrente vit donc dans InitiateTransferUseCase.save_if_status,
+    # pas ici.
     from django.conf import settings
 
     from .adapters.orm.django_aml_repository import DjangoORMAMLRepository
