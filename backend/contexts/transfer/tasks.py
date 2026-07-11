@@ -158,6 +158,7 @@ def check_escrow_timeouts_task() -> dict:
     from contexts.blockchain.adapters.services.web3_blockchain_service import (
         Web3BlockchainService,
     )
+    from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
     from .adapters.orm.django_transaction_repository import (
         DjangoORMTransactionRepository,
     )
@@ -174,8 +175,11 @@ def check_escrow_timeouts_task() -> dict:
     processed = 0
     for txn in stuck:
         transaction_id = str(txn.id)
+        # KRYP-37 — même transferId dérivé qu'au verrouillage (LockEscrowUseCase),
+        # sinon le contrat ne retrouve pas l'escrow verrouillé (TransferNotLocked).
+        onchain_transfer_id = to_onchain_transfer_id(transaction_id)
         try:
-            blockchain.escrow_refund(transaction_id)
+            blockchain.escrow_refund(onchain_transfer_id)
         except Exception as exc:  # noqa: BLE001 - best-effort per transaction
             logger.error(
                 "check_escrow_timeouts: escrow_refund a échoué pour %s: %s",
@@ -183,7 +187,7 @@ def check_escrow_timeouts_task() -> dict:
             )
         repo.mark_payout_failed(transaction_id)
         try:
-            blockchain.log_critical_event(transaction_id, "ESCROW_TIMEOUT_REFUNDED")
+            blockchain.log_critical_event(onchain_transfer_id, "ESCROW_TIMEOUT_REFUNDED")
         except Exception as exc:  # noqa: BLE001 - best-effort
             logger.error(
                 "check_escrow_timeouts: log_critical_event a échoué pour %s: %s",

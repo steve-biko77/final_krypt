@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
 from contexts.blockchain.ports.blockchain_service import BlockchainServicePort
 from contexts.mobile_money.ports.mobile_money_service import MobileMoneyServicePort
 
@@ -81,7 +82,9 @@ class ProcessPayoutUseCase:
     # ------------------------------------------------------------------ outcomes
     def _on_success(self, transaction_id, payout) -> ProcessPayoutResult:
         # Libère l'escrow on-chain, marque DELIVERED avec la référence payout.
-        self._blockchain.escrow_release(transaction_id)
+        # KRYP-37 — même transferId dérivé qu'au verrouillage (LockEscrowUseCase),
+        # sinon le contrat ne retrouve pas l'escrow verrouillé (TransferNotLocked).
+        self._blockchain.escrow_release(to_onchain_transfer_id(transaction_id))
         self._repo.mark_delivered(transaction_id, payout.payout_id)
 
         # Une livraison réussie est le cas NORMAL : on rejoint le batch Merkle
@@ -96,14 +99,16 @@ class ProcessPayoutUseCase:
 
     def _on_failure(self, transaction_id) -> ProcessPayoutResult:
         # Chemin exceptionnel : remboursement escrow + événement critique temps réel.
-        self._blockchain.escrow_refund(transaction_id)
+        # KRYP-37 — même transferId dérivé qu'au verrouillage (LockEscrowUseCase).
+        onchain_transfer_id = to_onchain_transfer_id(transaction_id)
+        self._blockchain.escrow_refund(onchain_transfer_id)
         self._repo.mark_payout_failed(transaction_id)
         logger.error(
             "send_payout a échoué après %s tentatives pour %s → PAYOUT_FAILED (refund)",
             self._max_retries, transaction_id,
         )
         try:
-            self._blockchain.log_critical_event(transaction_id, "PAYOUT_FAILED_REFUNDED")
+            self._blockchain.log_critical_event(onchain_transfer_id, "PAYOUT_FAILED_REFUNDED")
         except Exception as exc:  # noqa: BLE001 - best-effort, ne jamais crasher
             logger.error("log_critical_event a échoué pour %s: %s", transaction_id, exc)
         return ProcessPayoutResult(success=False)

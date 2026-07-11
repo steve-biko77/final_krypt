@@ -243,6 +243,49 @@ class MerkleTreeTests(SimpleTestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# KRYP-37 — Dérivation déterministe du transferId on-chain (fix bug UUID brut)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TransferIdDerivationTests(SimpleTestCase):
+    """Pure-Python — no DB, no network."""
+
+    def test_deterministic_same_transaction_id_same_hash(self):
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
+        transaction_id = "550e8400-e29b-41d4-a716-446655440000"
+
+        first = to_onchain_transfer_id(transaction_id)
+        second = to_onchain_transfer_id(transaction_id)
+        third = to_onchain_transfer_id(transaction_id)
+
+        self.assertEqual(first, second)
+        self.assertEqual(second, third)
+
+    def test_valid_bytes32_hex_format(self):
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
+        result = to_onchain_transfer_id("550e8400-e29b-41d4-a716-446655440000")
+
+        self.assertTrue(result.startswith("0x"))
+        self.assertEqual(len(result), 66)  # "0x" + 64 hex chars = 32 bytes
+        # bytes32 valide pour Web3.to_bytes(hexstr=...) — c'est exactement ce que
+        # le contrat Escrow/AuditTrail attend (cf. docstring du port).
+        Web3.to_bytes(hexstr=result)  # ne doit pas lever
+
+    def test_different_transaction_ids_produce_different_hashes(self):
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
+        a = to_onchain_transfer_id("550e8400-e29b-41d4-a716-446655440000")
+        b = to_onchain_transfer_id("11111111-1111-1111-1111-111111111111")
+
+        self.assertNotEqual(a, b)
+
+    def test_raw_uuid_would_have_failed_hex_conversion(self):
+        """Confirme le bug d'origine (KRYP-37) : un UUID brut n'est PAS un hexstr
+        valide — c'est précisément pourquoi cette fonction existe."""
+        raw_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        with self.assertRaises(ValueError):
+            Web3.to_bytes(hexstr=raw_uuid)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # KRYP-25 — Tâche de soumission du batch d'audit (Merkle → AuditTrail)
 # ─────────────────────────────────────────────────────────────────────────────
 

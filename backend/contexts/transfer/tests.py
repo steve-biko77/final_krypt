@@ -381,6 +381,7 @@ class LockEscrowUseCaseTests(APITestCase):
 
     def test_escrow_lock_success(self):
         """escrow_lock réussit du premier coup → ESCROWED + tx hash stocké."""
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
         txn = self._create_transaction()
         blockchain = MagicMock()
         blockchain.escrow_lock.return_value = '0xdeadbeef'
@@ -392,8 +393,10 @@ class LockEscrowUseCaseTests(APITestCase):
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'ESCROWED')
         self.assertEqual(txn.escrow_tx_hash, '0xdeadbeef')
-        # 50.00 EUR → 5000 cents transmis au port.
-        blockchain.escrow_lock.assert_called_once_with(str(txn.id), 5000)
+        # 50.00 EUR → 5000 cents ; transferId dérivé (KRYP-37), pas l'UUID brut.
+        blockchain.escrow_lock.assert_called_once_with(
+            to_onchain_transfer_id(str(txn.id)), 5000
+        )
 
     def test_escrow_lock_retry_then_success(self):
         """Échoue 2 fois puis réussit à la 3e → ESCROWED, 3 appels, sleep mocké."""
@@ -426,6 +429,7 @@ class LockEscrowUseCaseTests(APITestCase):
 
     def test_escrow_lock_all_retries_fail_status_failed(self):
         """Échoue à chaque tentative → ESCROW_FAILED + log_critical_event, aucun hash."""
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
         from contexts.blockchain.models import PendingAuditHash
         txn = self._create_transaction()
         blockchain = MagicMock()
@@ -439,7 +443,7 @@ class LockEscrowUseCaseTests(APITestCase):
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'ESCROW_FAILED')
         blockchain.log_critical_event.assert_called_once_with(
-            str(txn.id), 'ESCROW_LOCK_FAILED'
+            to_onchain_transfer_id(str(txn.id)), 'ESCROW_LOCK_FAILED'
         )
         # Un transfert en échec ne doit jamais alimenter le batch d'audit.
         self.assertEqual(
@@ -563,6 +567,7 @@ class ProcessPayoutUseCaseTests(APITestCase):
 
     def test_payout_success_mtn(self):
         """MTN mocké, succès dès la 1re tentative → DELIVERED + escrow_release."""
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
         from contexts.mobile_money.ports.mobile_money_service import PayoutResult
         txn = self._create_transaction()
         momo = MagicMock()
@@ -576,7 +581,10 @@ class ProcessPayoutUseCaseTests(APITestCase):
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'DELIVERED')
         self.assertEqual(txn.payout_reference, 'mtn-ref-1')
-        blockchain.escrow_release.assert_called_once_with(str(txn.id))
+        # transferId dérivé (KRYP-37) — même valeur que celui verrouillé au lock.
+        blockchain.escrow_release.assert_called_once_with(
+            to_onchain_transfer_id(str(txn.id))
+        )
         # amount_xaf réutilisé (32309), transmis au port.
         args = momo.send_payout.call_args.args
         self.assertEqual(args[1], Decimal('32309.00'))
@@ -623,6 +631,7 @@ class ProcessPayoutUseCaseTests(APITestCase):
 
     def test_payout_failure_orange_then_refund(self):
         """Orange numéro impair → 3 échecs → escrow_refund + PAYOUT_FAILED."""
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
         from contexts.mobile_money.adapters.services.orange_money_mock_service import (
             OrangeMoneyMockService,
         )
@@ -636,10 +645,13 @@ class ProcessPayoutUseCaseTests(APITestCase):
         self.assertFalse(result.success)
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'PAYOUT_FAILED')
-        blockchain.escrow_refund.assert_called_once_with(str(txn.id))
+        blockchain.escrow_refund.assert_called_once_with(
+            to_onchain_transfer_id(str(txn.id))
+        )
 
     def test_payout_failure_triggers_immediate_critical_event(self):
         """Échec total → log_critical_event appelé immédiatement, aucun PendingAuditHash."""
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
         from contexts.blockchain.models import PendingAuditHash
         from contexts.mobile_money.adapters.services.orange_money_mock_service import (
             OrangeMoneyMockService,
@@ -652,7 +664,7 @@ class ProcessPayoutUseCaseTests(APITestCase):
         self._use_case(OrangeMoneyMockService(), blockchain).execute(str(txn.id))
 
         blockchain.log_critical_event.assert_called_once_with(
-            str(txn.id), 'PAYOUT_FAILED_REFUNDED'
+            to_onchain_transfer_id(str(txn.id)), 'PAYOUT_FAILED_REFUNDED'
         )
         self.assertEqual(
             PendingAuditHash.objects.filter(transaction_id=str(txn.id)).count(), 0
@@ -674,6 +686,122 @@ class ProcessPayoutUseCaseTests(APITestCase):
         )
         with self.assertRaises(ValueError):
             get_mobile_money_service('UNKNOWN_OP')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-37 — LockEscrowUseCase et ProcessPayoutUseCase doivent dériver le MÊME
+# transferId on-chain pour une transaction donnée (sinon release()/refund()
+# chercheraient un transferId différent de celui verrouillé par lock(), et le
+# contrat retournerait TransferNotLocked à tort).
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TransferIdCrossConsistencyTests(APITestCase):
+    """Test de cohérence croisée : pas seulement le format (déjà couvert par
+    contexts/blockchain/tests.py::TransferIdDerivationTests), mais que les DEUX
+    use cases produisent EXACTEMENT le même transferId pour la même transaction,
+    en capturant l'argument réel reçu par chaque appel bloqué/mocké."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+
+    def _create_transaction(
+        self, status_value='PROCESSING', momo_number='+237699000002', operator='MTN_MOMO'
+    ):
+        from contexts.transfer.models import TransactionModel
+        return TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number=momo_number,
+            operator=operator,
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32309.00'),
+            status=status_value,
+        )
+
+    def test_lock_and_release_use_the_same_onchain_transfer_id(self):
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
+        from contexts.mobile_money.ports.mobile_money_service import PayoutResult
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.use_cases.lock_escrow import LockEscrowUseCase
+        from contexts.transfer.use_cases.process_payout import ProcessPayoutUseCase
+
+        txn = self._create_transaction(status_value='PROCESSING')
+        repo = DjangoORMTransactionRepository()
+
+        # 1. Verrouillage — capture le transferId réellement transmis à lock().
+        lock_blockchain = MagicMock()
+        lock_blockchain.escrow_lock.return_value = '0xlocked'
+        LockEscrowUseCase(
+            blockchain_service=lock_blockchain,
+            transaction_repo=repo,
+            sleep_fn=MagicMock(),
+        ).execute(str(txn.id))
+        locked_transfer_id = lock_blockchain.escrow_lock.call_args.args[0]
+
+        # 2. Livraison — capture le transferId réellement transmis à release().
+        momo = MagicMock()
+        momo.send_payout.return_value = PayoutResult(payout_id='ref-x', status='PENDING')
+        release_blockchain = MagicMock()
+        ProcessPayoutUseCase(
+            mobile_money_service=momo,
+            blockchain_service=release_blockchain,
+            transaction_repo=repo,
+            sleep_fn=MagicMock(),
+        ).execute(str(txn.id))
+        released_transfer_id = release_blockchain.escrow_release.call_args.args[0]
+
+        # Les DEUX use cases doivent avoir dérivé exactement le même transferId,
+        # et ce transferId doit être celui produit par la fonction unique.
+        self.assertEqual(locked_transfer_id, released_transfer_id)
+        self.assertEqual(locked_transfer_id, to_onchain_transfer_id(str(txn.id)))
+
+    def test_lock_failure_and_payout_failure_use_the_same_onchain_transfer_id(self):
+        """Même vérification côté échec : log_critical_event(ESCROW_LOCK_FAILED)
+        et escrow_refund/log_critical_event(PAYOUT_FAILED_REFUNDED) doivent
+        référencer le même transferId que celui qu'aurait utilisé lock()."""
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.use_cases.lock_escrow import LockEscrowUseCase
+        from contexts.transfer.use_cases.process_payout import ProcessPayoutUseCase
+        from contexts.mobile_money.adapters.services.orange_money_mock_service import (
+            OrangeMoneyMockService,
+        )
+
+        txn = self._create_transaction(
+            status_value='ESCROWED', momo_number='+237699000001', operator='ORANGE_MONEY'
+        )
+        repo = DjangoORMTransactionRepository()
+        expected = to_onchain_transfer_id(str(txn.id))
+
+        lock_blockchain = MagicMock()
+        lock_blockchain.escrow_lock.side_effect = RuntimeError('down')
+        LockEscrowUseCase(
+            blockchain_service=lock_blockchain,
+            transaction_repo=repo,
+            sleep_fn=MagicMock(),
+        ).execute(str(txn.id))
+        self.assertEqual(
+            lock_blockchain.log_critical_event.call_args.args[0], expected
+        )
+
+        refund_blockchain = MagicMock()
+        # Numéro impair (+237699000001) → OrangeMoneyMockService échoue toujours.
+        ProcessPayoutUseCase(
+            mobile_money_service=OrangeMoneyMockService(),
+            blockchain_service=refund_blockchain,
+            transaction_repo=repo,
+            sleep_fn=MagicMock(),
+        ).execute(str(txn.id))
+        self.assertEqual(refund_blockchain.escrow_refund.call_args.args[0], expected)
+        self.assertEqual(
+            refund_blockchain.log_critical_event.call_args.args[0], expected
+        )
 
 
 class TransferStatusViewTests(APITestCase):
@@ -835,6 +963,7 @@ class CheckEscrowTimeoutsTaskTests(APITestCase):
 
         from django.utils import timezone
 
+        from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
         from contexts.transfer.models import TransactionModel
         from contexts.transfer.tasks import check_escrow_timeouts_task
         txn = self._create_transaction()
@@ -847,9 +976,11 @@ class CheckEscrowTimeoutsTaskTests(APITestCase):
         result = check_escrow_timeouts_task()
 
         self.assertEqual(result['refunded'], 1)
-        blockchain.escrow_refund.assert_called_once_with(str(txn.id))
+        blockchain.escrow_refund.assert_called_once_with(
+            to_onchain_transfer_id(str(txn.id))
+        )
         blockchain.log_critical_event.assert_called_once_with(
-            str(txn.id), 'ESCROW_TIMEOUT_REFUNDED'
+            to_onchain_transfer_id(str(txn.id)), 'ESCROW_TIMEOUT_REFUNDED'
         )
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'PAYOUT_FAILED')

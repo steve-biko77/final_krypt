@@ -271,15 +271,12 @@ def _run_full_transfer_flow(client, *, real_mode: bool):
     # --- 11. Déclenche payout_task → MTN MoMo → Escrow.release() → DELIVERED -
     from contexts.transfer.tasks import payout_task
     if real_mode:
-        # KNOWN GAP (découvert pendant KRYP-37, hors scope pour le corriger ici) :
-        # LockEscrowUseCase/ProcessPayoutUseCase transmettent l'UUID brut du
-        # transfert (avec tirets) comme transferId on-chain ; Web3BlockchainService
-        # attend un hexstr valide (Web3.to_bytes(hexstr=...)) et un UUID contient
-        # des tirets — non-hexadécimal. escrow_lock/escrow_release échoueront donc
-        # réellement en mode e2e_real tant que ce mapping n'est pas corrigé
-        # (ticket séparé à ouvrir, cf. résumé de session). On réutilise malgré
-        # tout l'adapter réel TEL QUEL (consigne KRYP-37) : ce test est justement
-        # celui qui doit révéler ce genre d'écart d'intégration.
+        # KRYP-37 — corrigé : LockEscrowUseCase/ProcessPayoutUseCase dérivent
+        # désormais un transferId hex valide via to_onchain_transfer_id() (voir
+        # contexts/blockchain/domain/transfer_id.py) au lieu de transmettre
+        # l'UUID brut (avec tirets, non-hexadécimal) tel quel au contrat Escrow.
+        # C'est justement ce test réel qui avait révélé le bug ("Non-hexadecimal
+        # digit found" contre Amoy) avant ce correctif.
         payout_result = payout_task(transaction_id)
     else:
         with patch(
@@ -299,7 +296,13 @@ def _run_full_transfer_flow(client, *, real_mode: bool):
             payout_result = payout_task(transaction_id)
 
             momo_mock.send_payout.assert_called_once()
-            mock_bc.return_value.escrow_release.assert_called_once_with(transaction_id)
+            # KRYP-37 — transferId dérivé (contexts/blockchain/domain/transfer_id.py),
+            # pas l'UUID brut : même valeur que celle utilisée par escrow_lock à
+            # l'étape 8, sinon le contrat renverrait TransferNotLocked à tort.
+            from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
+            mock_bc.return_value.escrow_release.assert_called_once_with(
+                to_onchain_transfer_id(transaction_id)
+            )
 
     assert payout_result['success']
 

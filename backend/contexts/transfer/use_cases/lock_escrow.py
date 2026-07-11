@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from contexts.blockchain.domain.transfer_id import to_onchain_transfer_id
 from contexts.blockchain.ports.blockchain_service import BlockchainServicePort
 from ..domain.entities import TransactionStatus
 
@@ -49,10 +50,13 @@ class LockEscrowUseCase:
             return LockEscrowResult(success=False)
 
         amount_cents = int(transaction.amount_eur * 100)
+        # KRYP-37 — l'UUID de transaction n'est pas un bytes32 hex valide ; le
+        # contrat Escrow exige un transferId dérivé (voir docstring du module).
+        onchain_transfer_id = to_onchain_transfer_id(transaction_id)
 
         for attempt in range(1, self._max_retries + 1):
             try:
-                tx_hash = self._blockchain.escrow_lock(transaction_id, amount_cents)
+                tx_hash = self._blockchain.escrow_lock(onchain_transfer_id, amount_cents)
             except Exception as exc:  # noqa: BLE001 - resilience path, always resolved internally
                 logger.warning(
                     "escrow_lock tentative %s/%s échouée pour %s: %s",
@@ -77,7 +81,7 @@ class LockEscrowUseCase:
         # Signal critique temps réel (best-effort) : ne jamais faire échouer le
         # use case si cet appel secondaire échoue lui aussi.
         try:
-            self._blockchain.log_critical_event(transaction_id, "ESCROW_LOCK_FAILED")
+            self._blockchain.log_critical_event(onchain_transfer_id, "ESCROW_LOCK_FAILED")
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "log_critical_event a échoué pour %s: %s", transaction_id, exc
