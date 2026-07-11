@@ -31,12 +31,20 @@ export default function AdminAMLClient({ initialData, initialCount }: AdminAMLCl
             {count} transfert{count !== 1 ? 's' : ''} · trié par signal de priorité décroissant
           </p>
         </div>
-        <Link
-          href="/admin/aml/escalated"
-          className="text-13 font-medium text-blue-600 hover:underline"
-        >
-          Voir les dossiers escaladés →
-        </Link>
+        <div className="flex gap-4">
+          <Link
+            href="/admin/aml/escalated"
+            className="text-13 font-medium text-blue-600 hover:underline"
+          >
+            Voir les dossiers escaladés →
+          </Link>
+          <Link
+            href="/admin/aml/hard-block"
+            className="text-13 font-medium text-red-600 hover:underline"
+          >
+            Voir les alertes HARD_BLOCK →
+          </Link>
+        </div>
       </div>
 
       {items.length === 0 ? (

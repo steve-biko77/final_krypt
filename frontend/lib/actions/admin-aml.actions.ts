@@ -146,3 +146,68 @@ export const getAdminAMLHistory = async (
   const qs = actionFilter ? `?action=${encodeURIComponent(actionFilter)}` : '';
   return authedFetch(`/api/admin/aml/history${qs}`);
 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// KRYP-31 (partie 2/3) — section HARD_BLOCK (image 2, section 4). Ces cas
+// sont DÉJÀ bloqués : les 3 actions ci-dessous ne changent jamais le statut
+// du transfert, elles documentent/enrichissent le dossier — indépendantes,
+// pas un flux séquentiel obligatoire.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface AdminAMLHardBlockedItem {
+  transfer_id: string;
+  sender_id: string;
+  ofac_matched_entry: string | null;
+  ofac_similarity: number | null;
+  ofac_list: string | null;
+  created_at: string | null;
+  is_documented: boolean;
+  account_frozen: boolean;
+  tracfin_report_generated: boolean;
+}
+
+export interface AdminAMLHardBlockedListResponse {
+  count: number;
+  results: AdminAMLHardBlockedItem[];
+}
+
+export const getAdminAMLHardBlocked = async (): Promise<AdminAMLHardBlockedListResponse> =>
+  authedFetch('/api/admin/aml/hard-blocked');
+
+export const documentHardBlockCase = async (
+  id: string,
+  note: string,
+): Promise<{ transaction_id: string; documented: boolean }> =>
+  authedFetch(`/api/admin/aml/hard-blocked/${id}/document`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });
+
+export interface FreezeAccountResult {
+  transaction_id: string;
+  user_id: string;
+  account_frozen: boolean;
+  polygonscan_url: string | null;
+}
+
+export const freezeAccount = async (id: string): Promise<FreezeAccountResult> =>
+  authedFetch(`/api/admin/aml/hard-blocked/${id}/freeze-account`, { method: 'POST' });
+
+export interface GenerateTracfinReportResult {
+  transaction_id: string;
+  tracfin_report_generated: boolean;
+  download_url: string;
+  polygonscan_url: string | null;
+}
+
+export const generateTracfinReport = async (
+  id: string,
+): Promise<GenerateTracfinReportResult> =>
+  authedFetch(`/api/admin/aml/hard-blocked/${id}/generate-tracfin-report`, {
+    method: 'POST',
+  });
+
+export const getTracfinReportDownloadUrl = async (
+  id: string,
+): Promise<{ transaction_id: string; download_url: string; generated_at: string }> =>
+  authedFetch(`/api/admin/aml/hard-blocked/${id}/tracfin-report`);

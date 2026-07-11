@@ -25,6 +25,12 @@ ESCALATED_LIST_URL = '/api/admin/aml/escalated'
 ESCALATED_DETAIL_URL = '/api/admin/aml/escalated/{}'
 ESCALATED_DECIDE_URL = '/api/admin/aml/escalated/{}/decide'
 HISTORY_URL = '/api/admin/aml/history'
+HARD_BLOCKED_LIST_URL = '/api/admin/aml/hard-blocked'
+HARD_BLOCKED_DOCUMENT_URL = '/api/admin/aml/hard-blocked/{}/document'
+HARD_BLOCKED_FREEZE_URL = '/api/admin/aml/hard-blocked/{}/freeze-account'
+HARD_BLOCKED_TRACFIN_URL = '/api/admin/aml/hard-blocked/{}/generate-tracfin-report'
+HARD_BLOCKED_TRACFIN_DOWNLOAD_URL = '/api/admin/aml/hard-blocked/{}/tracfin-report'
+INITIATE_URL = '/api/transfer/initiate'
 
 _ADMIN_A = {
     'email': 'admin-a@krypt.fr', 'password': 'Admin3Pass!',
@@ -40,6 +46,7 @@ _SENDER = {
 }
 
 _VIEWS = 'contexts.compliance.adapters.api.admin_aml_views'
+_HARD_BLOCK_VIEWS = 'contexts.compliance.adapters.api.admin_hard_block_views'
 
 
 def _register(client, payload):
@@ -465,3 +472,276 @@ class AMLResubmitDocsTests(APITestCase):
         res = self.client.post(f'/api/aml/{txn.id}/resubmit-docs', {'file': f}, format='multipart')
 
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-31 (partie 2/3) — Section HARD_BLOCK (image 2, section 4) : review
+# sanctions match, document case, freeze user account, generate TRACFIN
+# declaration report. Ces cas sont DÉJÀ bloqués (HARD_BLOCK = match OFAC
+# confirmé) : les 3 actions ne sont PAS des décisions, le statut du transfert
+# ne change jamais.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class HardBlockSectionTests(APITestCase):
+
+    def setUp(self):
+        self.sender_access, self.sender_id = _register(self.client, _SENDER)
+
+    def _create_hard_block_transaction(self, amount_eur='500.00'):
+        from contexts.transfer.models import TransactionModel
+        txn = TransactionModel.objects.create(
+            sender_id=uuid.UUID(self.sender_id),
+            beneficiary_name='Viktor Petrov Rosneft',
+            beneficiary_country='RU',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal(amount_eur),
+            fees_eur=Decimal('7.50'),
+            amount_xaf=Decimal('327978.50'),
+            status='AML_BLOCKED',
+        )
+        from contexts.compliance.models import AMLResultModel
+        AMLResultModel.objects.create(
+            transfer_id=str(txn.id),
+            user_id=uuid.UUID(self.sender_id),
+            xgboost_score=0.1,
+            ofac_match=True,
+            ofac_details={
+                'matched_entry': 'Viktor Petrov Rosneft',
+                'similarity': 1.0,
+                'list': 'OFAC-SDN',
+                'beneficiary_name': 'Viktor Petrov Rosneft',
+                'beneficiary_country': 'RU',
+            },
+            combined_decision='HARD_BLOCK',
+            tag_ml_score=0.1,
+            triggered_rules=[],
+        )
+        return txn
+
+    def _admin_client(self, payload=_ADMIN_A):
+        client = self.client_class()
+        access, admin_id = _make_staff_with_2fa(client, payload)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        return client, admin_id
+
+    def _attempt_new_transfer(self):
+        """Émetteur (potentiellement gelé) tente un NOUVEAU transfert légitime
+        (low-risk, Jean Mbarga/CM/50 EUR — même tuple que le reste de la suite)."""
+        from contexts.identity.models import UserModel
+        UserModel.objects.filter(pk=self.sender_id).update(is_kyc_verified=True)
+        client = self.client_class()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.sender_access}')
+        return client.post(INITIATE_URL, {
+            'beneficiary_name': 'Jean Mbarga',
+            'beneficiary_country': 'CM',
+            'momo_number': '+237699000002',
+            'operator': 'MTN_MOMO',
+            'amount_eur': '50',
+        }, format='json')
+
+    # -------------------------------------------------------------- listing
+    def test_admin_can_list_hard_blocked_cases(self):
+        txn = self._create_hard_block_transaction()
+        client, _ = self._admin_client()
+
+        res = client.get(HARD_BLOCKED_LIST_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['count'], 1)
+        item = res.data['results'][0]
+        self.assertEqual(item['transfer_id'], str(txn.id))
+        self.assertEqual(item['ofac_matched_entry'], 'Viktor Petrov Rosneft')
+        self.assertEqual(item['ofac_similarity'], 1.0)
+        self.assertFalse(item['is_documented'])
+        self.assertFalse(item['account_frozen'])
+        self.assertFalse(item['tracfin_report_generated'])
+
+    # ---------------------------------------------------------- documenting
+    def test_admin_can_document_hard_blocked_case(self):
+        txn = self._create_hard_block_transaction()
+        client, admin_id = self._admin_client()
+
+        res = client.post(
+            HARD_BLOCKED_DOCUMENT_URL.format(txn.id),
+            {'note': 'Vérifié manuellement, correspond au profil sanctionné.'},
+            format='json',
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['documented'])
+
+        from contexts.compliance.models import AMLAdminAuditLog
+        log = AMLAdminAuditLog.objects.get(transaction_id=str(txn.id), action='DOCUMENT')
+        self.assertEqual(str(log.admin_id), admin_id)
+        self.assertIn('sanctionné', log.motif)
+
+    # -------------------------------------------------------------- freezing
+    @patch(f'{_HARD_BLOCK_VIEWS}.Web3BlockchainService')
+    def test_freeze_account_blocks_future_transfers(self, mock_bc_cls):
+        mock_bc_cls.return_value.log_critical_event.return_value = '0xfreeze'
+        txn = self._create_hard_block_transaction()
+        admin_client, _ = self._admin_client()
+
+        freeze_res = admin_client.post(HARD_BLOCKED_FREEZE_URL.format(txn.id))
+        self.assertEqual(freeze_res.status_code, status.HTTP_200_OK)
+
+        initiate_res = self._attempt_new_transfer()
+
+        self.assertEqual(initiate_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(initiate_res.data['error'], 'TRANSFER_NOT_ALLOWED')
+
+    @patch(f'{_HARD_BLOCK_VIEWS}.Web3BlockchainService')
+    def test_frozen_user_gets_generic_error_not_revealing_reason(self, mock_bc_cls):
+        mock_bc_cls.return_value.log_critical_event.return_value = '0xfreeze'
+        txn = self._create_hard_block_transaction()
+        admin_client, _ = self._admin_client()
+        admin_client.post(HARD_BLOCKED_FREEZE_URL.format(txn.id))
+
+        initiate_res = self._attempt_new_transfer()
+
+        detail = initiate_res.data.get('detail', '').lower()
+        for forbidden in ('gel', 'frozen', 'sanction', 'aml', 'hard_block', 'ofac', 'conformité'):
+            self.assertNotIn(forbidden, detail)
+
+    @patch(f'{_HARD_BLOCK_VIEWS}.Web3BlockchainService')
+    def test_freeze_account_logs_onchain_immediately(self, mock_bc_cls):
+        from contexts.blockchain.domain.transfer_id import to_onchain_account_id
+        mock_bc_cls.return_value.log_critical_event.return_value = '0xfreeze_hash'
+        txn = self._create_hard_block_transaction()
+        client, _ = self._admin_client()
+
+        res = client.post(HARD_BLOCKED_FREEZE_URL.format(txn.id))
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            res.data['polygonscan_url'], 'https://amoy.polygonscan.com/tx/0xfreeze_hash'
+        )
+        mock_bc_cls.return_value.log_critical_event.assert_called_once_with(
+            to_onchain_account_id(self.sender_id), 'ACCOUNT_FROZEN'
+        )
+
+        from contexts.identity.models import UserModel
+        self.assertTrue(UserModel.objects.get(pk=self.sender_id).is_frozen)
+
+        from contexts.compliance.models import AMLAdminAuditLog
+        log = AMLAdminAuditLog.objects.get(
+            transaction_id=str(txn.id), action='FREEZE_ACCOUNT'
+        )
+        self.assertEqual(log.tx_hash, '0xfreeze_hash')
+
+    # ------------------------------------------------------------- TRACFIN
+    @patch(f'{_HARD_BLOCK_VIEWS}.MinIOStorageService')
+    @patch(f'{_HARD_BLOCK_VIEWS}.Web3BlockchainService')
+    def test_generate_tracfin_report_creates_valid_pdf(self, mock_bc_cls, mock_storage_cls):
+        mock_bc_cls.return_value.log_critical_event.return_value = '0xtracfin_hash'
+        mock_storage_cls.return_value.upload_file.return_value = (
+            'krypt-bucket/tracfin-reports/x.pdf'
+        )
+        mock_storage_cls.return_value.get_presigned_url.return_value = (
+            'http://minio/download-link'
+        )
+
+        txn = self._create_hard_block_transaction()
+        client, admin_id = self._admin_client()
+
+        res = client.post(HARD_BLOCKED_TRACFIN_URL.format(txn.id))
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['tracfin_report_generated'])
+        self.assertEqual(res.data['download_url'], 'http://minio/download-link')
+
+        upload_call = mock_storage_cls.return_value.upload_file.call_args
+        pdf_bytes = upload_call.args[0]
+        self.assertTrue(pdf_bytes.startswith(b'%PDF-'))
+        self.assertEqual(upload_call.args[2], 'application/pdf')
+
+        from contexts.compliance.models import TracfinReportModel
+        report = TracfinReportModel.objects.get(transaction_id=str(txn.id))
+        self.assertEqual(str(report.admin_id), admin_id)
+
+    def test_tracfin_report_contains_academic_disclaimer(self):
+        from datetime import datetime, timezone
+
+        from contexts.compliance.adapters.services.tracfin_report_generator import (
+            generate_tracfin_report_pdf,
+        )
+
+        pdf = generate_tracfin_report_pdf({
+            'transaction_id': 'test-tx',
+            'generated_at': datetime.now(timezone.utc),
+            'admin_email': 'admin@krypt.fr',
+            'sender_name': 'Test Sender',
+            'sender_email': 's@krypt.fr',
+            'sender_phone': '+33600000000',
+            'sender_kyc_verified': True,
+            'amount_eur': '100.00',
+            'amount_xaf': '65000',
+            'beneficiary_name': 'Test Beneficiary',
+            'beneficiary_country': 'CM',
+            'transfer_created_at': '01/01/2026',
+            'ofac_matched_entry': 'Test Entry',
+            'ofac_similarity': 0.9,
+            'ofac_list': 'OFAC-SDN',
+            'triggered_rules': [],
+        })
+
+        self.assertTrue(pdf.startswith(b'%PDF-'))
+        # Marqueurs sans accent (fiables après encodage PDF) confirmant la
+        # présence de la mention académique en clair dans le document.
+        self.assertIn(b'JAMAIS', pdf)
+        self.assertIn(b'TRACFIN', pdf)
+        self.assertIn(b'KRYPT', pdf)
+
+    def test_tracfin_report_download_requires_admin_2fa(self):
+        from contexts.compliance.models import TracfinReportModel
+        txn = self._create_hard_block_transaction()
+        TracfinReportModel.objects.create(
+            transaction_id=str(txn.id),
+            admin_id=uuid.UUID(self.sender_id),
+            file_path='bucket/tracfin.pdf',
+        )
+
+        # Non authentifié → 401.
+        anon_client = self.client_class()
+        res = anon_client.get(HARD_BLOCKED_TRACFIN_DOWNLOAD_URL.format(txn.id))
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Staff SANS 2FA → 403.
+        from contexts.identity.models import UserModel
+        staff_client = self.client_class()
+        staff_access, staff_id = _register(staff_client, _ADMIN_B)
+        UserModel.objects.filter(pk=staff_id).update(is_staff=True)
+        staff_client.credentials(HTTP_AUTHORIZATION=f'Bearer {staff_access}')
+        res2 = staff_client.get(HARD_BLOCKED_TRACFIN_DOWNLOAD_URL.format(txn.id))
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Staff AVEC 2FA → 200, lien de téléchargement présent.
+        with patch(f'{_HARD_BLOCK_VIEWS}.MinIOStorageService') as mock_storage_cls:
+            mock_storage_cls.return_value.get_presigned_url.return_value = 'http://minio/dl'
+            admin_client, _ = self._admin_client()
+            res3 = admin_client.get(HARD_BLOCKED_TRACFIN_DOWNLOAD_URL.format(txn.id))
+
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
+        self.assertEqual(res3.data['download_url'], 'http://minio/dl')
+
+    # ------------------------------------------------------- no status change
+    def test_hard_block_actions_do_not_change_transaction_status(self):
+        txn = self._create_hard_block_transaction()
+        client, _ = self._admin_client()
+
+        client.post(
+            HARD_BLOCKED_DOCUMENT_URL.format(txn.id), {'note': 'note'}, format='json'
+        )
+        with patch(f'{_HARD_BLOCK_VIEWS}.Web3BlockchainService') as mock_bc_cls:
+            mock_bc_cls.return_value.log_critical_event.return_value = '0xhash'
+            client.post(HARD_BLOCKED_FREEZE_URL.format(txn.id))
+        with patch(f'{_HARD_BLOCK_VIEWS}.Web3BlockchainService') as mock_bc_cls, \
+                patch(f'{_HARD_BLOCK_VIEWS}.MinIOStorageService') as mock_storage_cls:
+            mock_bc_cls.return_value.log_critical_event.return_value = '0xhash2'
+            mock_storage_cls.return_value.upload_file.return_value = 'bucket/tracfin.pdf'
+            mock_storage_cls.return_value.get_presigned_url.return_value = 'http://minio/dl'
+            client.post(HARD_BLOCKED_TRACFIN_URL.format(txn.id))
+
+        txn.refresh_from_db()
+        self.assertEqual(txn.status, 'AML_BLOCKED')

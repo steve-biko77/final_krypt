@@ -118,6 +118,13 @@ class AMLAdminAuditLog(models.Model):
         ESCALATE = "ESCALATE", "Escaladé"
         ESCALATED_APPROVE = "ESCALATED_APPROVE", "Approuvé (2e niveau)"
         ESCALATED_REJECT = "ESCALATED_REJECT", "Rejeté (2e niveau)"
+        # KRYP-31 (partie 2/3) — section HARD_BLOCK (image 2, section 4) : ce ne
+        # sont PAS des décisions (le blocage est déjà acté, le statut du
+        # transfert ne change pas), seulement des actions de dossier — réutilise
+        # le même journal d'audit plutôt que d'en créer un second.
+        DOCUMENT = "DOCUMENT", "Cas documenté"
+        FREEZE_ACCOUNT = "FREEZE_ACCOUNT", "Compte gelé"
+        TRACFIN_REPORT_GENERATED = "TRACFIN_REPORT_GENERATED", "Déclaration TRACFIN générée"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     transaction_id = models.CharField(max_length=100, db_index=True)
@@ -162,6 +169,32 @@ class AMLSupportingDocumentModel(models.Model):
 
     def __str__(self):
         return f"AMLSupportingDocument({self.transaction_id})"
+
+
+class TracfinReportModel(models.Model):
+    """KRYP-31 (partie 2/3) — Déclaration TRACFIN générée pour un cas HARD_BLOCK
+    (image 2, section 4). Distinct de ``AMLSupportingDocumentModel`` : celui-ci
+    est un document RESOUMIS PAR L'UTILISATEUR (preuve), celui-là un document
+    GÉNÉRÉ PAR UN ADMIN (déclaration réglementaire) — sémantique différente,
+    d'où un ``admin`` FK ici et pas là-bas."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    transaction_id = models.CharField(max_length=100, db_index=True)
+    admin = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="generated_tracfin_reports",
+    )
+    file_path = models.CharField(max_length=500)
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "compliance"
+        db_table = "compliance_tracfin_reports"
+        ordering = ["-generated_at"]
+
+    def __str__(self):
+        return f"TracfinReport({self.transaction_id})"
 
 
 class AuditQueueModel(models.Model):

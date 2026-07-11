@@ -19,3 +19,16 @@ def to_onchain_transfer_id(transaction_id: str) -> str:
     """Keccak256 de l'UUID de transaction → hex ``"0x..."`` (bytes32 valide)."""
     hex_str = Web3.keccak(text=transaction_id).hex()
     return hex_str if hex_str.startswith("0x") else "0x" + hex_str
+
+
+def to_onchain_account_id(user_id: str) -> str:
+    """KRYP-31 (partie 2/3) — même construction que ``to_onchain_transfer_id``,
+    mais pour un événement lié à un COMPTE plutôt qu'à un transfert (gel de
+    compte, génération de déclaration TRACFIN). ``AuditTrail.logCriticalEvent``
+    n'attend qu'un ``bytes32`` opaque — son paramètre s'appelle ``transferId``
+    par convention historique (KRYP-24) mais le contrat ne vérifie aucune
+    relation avec un transfert réel (voir AuditTrail.sol) ; dériver un hash
+    dédié à partir de l'UUID utilisateur évite toute ambiguïté avec un
+    transferId réel dans les logs on-chain."""
+    hex_str = Web3.keccak(text=f"account:{user_id}").hex()
+    return hex_str if hex_str.startswith("0x") else "0x" + hex_str

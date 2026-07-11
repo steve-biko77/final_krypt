@@ -131,6 +131,19 @@ class InitiateTransferView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # KRYP-31 (partie 2/3) — compte gelé suite à un cas HARD_BLOCK (image 2,
+        # section 4) : message volontairement générique, ne révèle jamais au
+        # concerné qu'il s'agit d'un gel lié à une alerte de conformité.
+        if user.is_frozen:
+            return Response(
+                {
+                    "error": "TRANSFER_NOT_ALLOWED",
+                    "detail": "Impossible d'initier ce transfert pour le moment. "
+                              "Contactez le support pour plus d'informations.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = InitiateTransferRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
