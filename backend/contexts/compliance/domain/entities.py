@@ -48,7 +48,7 @@ class KYCStatus(str, Enum):
     ANALYZING = "ANALYZING"             # Analyse IA en cours
     APPROVED = "APPROVED"               # Validé automatiquement (score >= seuil)
     PENDING_REVIEW = "PENDING_REVIEW"   # Validation manuelle requise (score < seuil)
-    APPROVED_MANUAL = "APPROVED_MANUAL" # Validé manuellement par un admin
+    APPROVED_MANUAL = "APPROVED_MANUAL"  # Validé manuellement par un admin
     COMPLEMENT_REQUESTED = "COMPLEMENT_REQUESTED"  # Complément de documents demandé
     REJECTED = "REJECTED"               # Rejeté par un admin
 
