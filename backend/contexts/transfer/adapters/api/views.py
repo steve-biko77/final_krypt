@@ -165,6 +165,18 @@ class InitiateTransferView(APIView):
 
         if result.client_secret is None:
             # PENDING_REVIEW
+            # KRYP-31 — Fig. 10 point 1 : notifie l'admin dès qu'un transfert
+            # entre en revue manuelle (email — la liste GET /api/admin/aml/pending
+            # sert de "dashboard" côté consultation, cf. commentaire de session).
+            from contexts.notification.tasks import admin_alert_task
+            admin_alert_task.delay(
+                "ADMIN_ALERT_PENDING_REVIEW",
+                settings.COMPLIANCE_MANAGER_EMAIL,
+                {
+                    "transaction_id": result.transaction.id,
+                    "cta_url": f"{settings.FRONTEND_BASE_URL}/admin/aml",
+                },
+            )
             return Response(
                 {
                     "transaction_id": result.transaction.id,

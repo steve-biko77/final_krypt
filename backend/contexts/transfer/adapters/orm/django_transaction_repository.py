@@ -91,6 +91,32 @@ class DjangoORMTransactionRepository:
             return None
         return self.find_by_id(id)
 
+    def apply_admin_decision(
+        self,
+        id: str,
+        expected_status: TransactionStatus,
+        new_status: TransactionStatus,
+        tx_hash: Optional[str] = None,
+        stripe_payment_intent_id: Optional[str] = None,
+    ) -> Optional[Transaction]:
+        """KRYP-31 — Guarded transition for an admin AML console decision
+        (request-docs / approve / reject / escalate / escalated decide): only
+        writes if the row is still ``expected_status`` (guards a double-click or
+        a race with a concurrent state change, same idiom as ``save_if_status``),
+        and persists the on-chain tx hash of the DECISION itself (``None`` for
+        ESCALATE — Fig. 10 never logs on-chain at that step) plus, on approve, a
+        newly-created Stripe payment intent id if the transfer skipped Stripe at
+        initiate time."""
+        updates = {"status": new_status.value, "admin_review_tx_hash": tx_hash}
+        if stripe_payment_intent_id is not None:
+            updates["stripe_payment_intent_id"] = stripe_payment_intent_id
+        updated = TransactionModel.objects.filter(
+            pk=uuid.UUID(id), status=expected_status.value
+        ).update(**updates)
+        if updated == 0:
+            return None
+        return self.find_by_id(id)
+
     def mark_escrowed(self, id: str, tx_hash: str) -> None:
         """Persist the ESCROWED status, the on-chain tx hash and the precise
         ``escrowed_at`` timestamp in one update (the latter is the unambiguous
@@ -131,6 +157,7 @@ class DjangoORMTransactionRepository:
             escrow_tx_hash=obj.escrow_tx_hash,
             escrowed_at=obj.escrowed_at,
             payout_reference=obj.payout_reference,
+            admin_review_tx_hash=obj.admin_review_tx_hash,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )

@@ -15,6 +15,13 @@ class NotificationEventType(str, Enum):
     TRANSFER_INITIATED = "TRANSFER_INITIATED"
     TRANSFER_DELIVERED = "TRANSFER_DELIVERED"
     TRANSFER_FAILED = "TRANSFER_FAILED"
+    # KRYP-31 — console admin AML (Fig. 10). Les deux ADMIN_ALERT_* ne
+    # correspondent à aucun UserModel réel (destinataire configuré via
+    # settings.COMPLIANCE_MANAGER_EMAIL) — voir admin_alert_task, qui contourne
+    # délibérément la résolution UserModel de notification_task.
+    ADMIN_ALERT_PENDING_REVIEW = "ADMIN_ALERT_PENDING_REVIEW"
+    ADMIN_ALERT_ESCALATED = "ADMIN_ALERT_ESCALATED"
+    DOCS_REQUESTED = "DOCS_REQUESTED"
 
 
 @dataclass

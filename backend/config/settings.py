@@ -116,6 +116,11 @@ AML_SCORER_MODE = os.getenv("AML_SCORER_MODE", "mock")
 # Couche 4 — taux d'échantillonnage d'audit a posteriori sur les AUTO_APPROVED (1-2%)
 AML_AUDIT_SAMPLE_RATE = float(os.getenv("AML_AUDIT_SAMPLE_RATE", "0.02"))
 
+# KRYP-31 — destinataire des alertes console AML (nouveau PENDING_REVIEW,
+# escalade niveau 2). Aucune notion de rôle/hiérarchie admin n'existe encore
+# dans le projet : email de configuration en attendant un vrai système de rôles.
+COMPLIANCE_MANAGER_EMAIL = os.getenv("COMPLIANCE_MANAGER_EMAIL", "compliance@krypt.fr")
+
 # Blockchain — on-chain transparency/audit layer (KRYP-24, Polygon Amoy).
 # Phase 1/2: no real value custody on-chain. Credentials only used by the
 # Web3BlockchainService adapter; empty by default so local/CI runs never hit a

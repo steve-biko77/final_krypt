@@ -12,6 +12,7 @@ class AMLDecision(str, Enum):
     PENDING_REVIEW = "PENDING_REVIEW"   # Score 0.3-0.7 → révision admin
     MANUALLY_APPROVED = "MANUALLY_APPROVED"
     MANUALLY_REJECTED = "MANUALLY_REJECTED"
+    ESCALATED = "ESCALATED"  # KRYP-31 — envoyé en revue de second niveau (Fig. 10)
 
 
 @dataclass

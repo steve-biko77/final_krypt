@@ -33,6 +33,23 @@ class DjangoORMAMLRepository:
         except AMLResultModel.DoesNotExist:
             return None
 
+    def find_by_id(self, id: str) -> Optional[AMLResult]:
+        try:
+            obj = AMLResultModel.objects.get(pk=uuid.UUID(id))
+            return self._to_entity(obj)
+        except (AMLResultModel.DoesNotExist, ValueError):
+            return None
+
+    def update_review(self, id: str, reviewed_by_id: str, review_decision: str) -> None:
+        """KRYP-31 — Persist the admin's decision on an EXISTING result row via a
+        real UPDATE. Never call ``save()`` for this: it always constructs a brand
+        new ``AMLResultModel`` from the dataclass, which would insert a second row
+        for the same ``transfer_id`` rather than update the scored one."""
+        AMLResultModel.objects.filter(pk=uuid.UUID(id)).update(
+            reviewed_by_id=uuid.UUID(reviewed_by_id),
+            review_decision=review_decision,
+        )
+
     def _to_entity(self, obj: AMLResultModel) -> AMLResult:
         return AMLResult(
             id=str(obj.pk),

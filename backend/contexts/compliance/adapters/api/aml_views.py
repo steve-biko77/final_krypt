@@ -1,5 +1,6 @@
 from django.conf import settings
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -93,3 +94,55 @@ class AMLResultView(APIView):
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         return Response(_result_to_dict(result), status=status.HTTP_200_OK)
+
+
+class AMLResubmitDocsView(APIView):
+    """POST /api/aml/{transfer_id}/resubmit-docs — l'utilisateur resoumet des
+    documents complémentaires (AWAITING_DOCS -> AML_PENDING_REVIEW), KRYP-31,
+    symétrique au cycle de resoumission KYC (KRYP-19)."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, transfer_id: str):
+        uploaded = request.FILES.get("file")
+        if not uploaded:
+            return Response(
+                {"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from contexts.compliance.adapters.storage.minio_storage_service import (
+            MinIOStorageService,
+        )
+        from contexts.transfer.adapters.orm.django_transaction_repository import (
+            DjangoORMTransactionRepository,
+        )
+        from contexts.transfer.domain.exceptions import AdminReviewNotAllowedError
+        from contexts.transfer.use_cases.resubmit_aml_docs import (
+            ResubmitAMLDocumentsInput,
+            ResubmitAMLDocumentsUseCase,
+        )
+
+        use_case = ResubmitAMLDocumentsUseCase(
+            transaction_repo=DjangoORMTransactionRepository(),
+            storage_service=MinIOStorageService(),
+        )
+        try:
+            transaction = use_case.execute(
+                ResubmitAMLDocumentsInput(
+                    transaction_id=transfer_id,
+                    user_id=str(request.user.pk),
+                    file_data=uploaded.read(),
+                    filename=uploaded.name,
+                    content_type=uploaded.content_type or "application/octet-stream",
+                )
+            )
+        except AdminReviewNotAllowedError as exc:
+            return Response(
+                {"error": "NOT_ALLOWED", "reason": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {"transaction_id": transaction.id, "status": transaction.status.value},
+            status=status.HTTP_200_OK,
+        )

@@ -21,6 +21,8 @@ class TransactionStatus(models.TextChoices):
     PAYMENT_FAILED = "PAYMENT_FAILED", "Paiement échoué"
     PAYOUT_FAILED = "PAYOUT_FAILED", "Échec payout mobile money"
     CANCELLED = "CANCELLED", "Annulé"
+    AWAITING_DOCS = "AWAITING_DOCS", "Documents complémentaires requis"
+    ESCALATED = "ESCALATED", "Escaladé (revue niveau 2)"
 
 
 class TransactionModel(models.Model):
@@ -52,6 +54,11 @@ class TransactionModel(models.Model):
     escrowed_at = models.DateTimeField(null=True, blank=True)
     # Référence payout MTN/Orange (pour polling de statut / traçabilité).
     payout_reference = models.CharField(max_length=100, null=True, blank=True)
+    # KRYP-31 — hash de la transaction on-chain de la DÉCISION admin elle-même
+    # (log_critical_event sur approve/reject), distinct de escrow_tx_hash (verrou
+    # de fonds). Jamais renseigné pour ESCALATE (Fig. 10 : pas de log on-chain à
+    # cette étape, seulement à la décision finale).
+    admin_review_tx_hash = models.CharField(max_length=100, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

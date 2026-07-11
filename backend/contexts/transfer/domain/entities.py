@@ -28,6 +28,8 @@ class TransactionStatus(str, Enum):
     PAYMENT_FAILED = "PAYMENT_FAILED"
     PAYOUT_FAILED = "PAYOUT_FAILED"
     CANCELLED = "CANCELLED"
+    AWAITING_DOCS = "AWAITING_DOCS"
+    ESCALATED = "ESCALATED"
 
 
 @dataclass
@@ -47,5 +49,6 @@ class Transaction:
     escrow_tx_hash: Optional[str] = None
     escrowed_at: Optional[datetime] = None
     payout_reference: Optional[str] = None
+    admin_review_tx_hash: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

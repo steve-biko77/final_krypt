@@ -30,3 +30,25 @@ class TransferNotCancellableError(Exception):
     def __init__(self, reason: str = "Ce transfert ne peut plus être annulé."):
         self.reason = reason
         super().__init__(reason)
+
+
+class AdminReviewNotAllowedError(Exception):
+    """KRYP-31 — Raised when an admin AML console action (request-docs, decide,
+    escalated decide) is attempted on a transaction that isn't in the expected
+    status for that action (Fig. 10), including the race where it changed
+    between the read and the guarded write."""
+
+    def __init__(self, reason: str = "Action non autorisée pour le statut actuel de ce transfert."):
+        self.reason = reason
+        super().__init__(reason)
+
+
+class AdminReasonRequiredError(Exception):
+    """KRYP-31 — Raised when an admin rejects a transfer without a motif
+    (Fig. 10 point 4b: motif is mandatory for REJECT, validated at the use-case
+    boundary so both the first-level and escalated-review entry points enforce
+    it identically)."""
+
+    def __init__(self, reason: str = "Un motif est requis pour cette décision."):
+        self.reason = reason
+        super().__init__(reason)

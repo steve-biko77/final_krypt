@@ -56,3 +56,33 @@ def notification_task(event_type: str, user_id: str, context: dict) -> dict:
     )
 
     return {"sent": True, "event_type": event_type, "user_id": user_id}
+
+
+@shared_task(name="notification.send_admin_alert")
+def admin_alert_task(event_type: str, to_email: str, context: dict) -> dict:
+    """KRYP-31 — Alerte admin (console AML, Fig. 10) : contrairement à
+    ``notification_task``, ne résout PAS de ``UserModel`` — le destinataire est
+    une adresse email de configuration (``settings.COMPLIANCE_MANAGER_EMAIL``,
+    en attendant un vrai système de rôles/hiérarchie admin), pas forcément un
+    utilisateur enregistré. Réutilise le même port/adapter/use case (une seule
+    fois : le port ``NotificationServicePort`` est agnostique du mécanisme de
+    résolution du destinataire, seule cette tâche diffère)."""
+    from .adapters.services.django_email_service import DjangoEmailService
+    from .adapters.services.mock_sms_service import MockSMSService
+    from .domain.entities import NotificationEvent, NotificationEventType
+    from .use_cases.send_notification import (
+        SendNotificationInput,
+        SendNotificationUseCase,
+    )
+
+    event = NotificationEvent(
+        type=NotificationEventType(event_type),
+        recipient_name="Équipe conformité KRYPT",
+        context=context,
+    )
+    SendNotificationUseCase(
+        email_service=DjangoEmailService(),
+        sms_service=MockSMSService(),
+    ).execute(SendNotificationInput(event=event, to_email=to_email))
+
+    return {"sent": True, "event_type": event_type, "to_email": to_email}

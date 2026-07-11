@@ -27,6 +27,18 @@ _TEMPLATE_BY_EVENT = {
         "notification/transfer_failed.html",
         "Votre transfert KRYPT n'a pas abouti",
     ),
+    NotificationEventType.DOCS_REQUESTED: (
+        "notification/docs_requested.html",
+        "Documents complémentaires requis pour votre transfert KRYPT",
+    ),
+    NotificationEventType.ADMIN_ALERT_PENDING_REVIEW: (
+        "notification/admin_alert_pending_review.html",
+        "[KRYPT Admin] Nouveau transfert en revue AML",
+    ),
+    NotificationEventType.ADMIN_ALERT_ESCALATED: (
+        "notification/admin_alert_escalated.html",
+        "[KRYPT Admin] Transfert escaladé — revue niveau 2 requise",
+    ),
 }
 
 

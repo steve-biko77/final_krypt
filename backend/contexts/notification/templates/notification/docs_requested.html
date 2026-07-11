@@ -1,0 +1,14 @@
+{% extends "notification/_base_email.html" %}
+{% block title %}Documents complémentaires requis{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;color:#00214F;">Documents complémentaires requis</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#344054;">
+  Bonjour {{ recipient_name }}, nous avons besoin d'informations complémentaires
+  pour finaliser la vérification de votre transfert.
+</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#344054;">
+  Merci de vous rendre sur le suivi de votre transfert pour les transmettre.
+  Aucune autre action n'est requise pour l'instant.
+</p>
+{% include "notification/_cta_button.html" with cta_label="Transmettre les documents" %}
+{% endblock %}

@@ -11,6 +11,7 @@ class AMLDecision(models.TextChoices):
     PENDING_REVIEW = "PENDING_REVIEW", "Révision admin requise"
     MANUALLY_APPROVED = "MANUALLY_APPROVED", "Approuvé manuellement"
     MANUALLY_REJECTED = "MANUALLY_REJECTED", "Rejeté manuellement"
+    ESCALATED = "ESCALATED", "Escaladé (revue niveau 2)"
 
 
 class DocumentType(models.TextChoices):
@@ -102,6 +103,65 @@ class AMLResultModel(models.Model):
 
     def __str__(self):
         return f"AML({self.transfer_id}, {self.combined_decision})"
+
+
+class AMLAdminAuditLog(models.Model):
+    """KRYP-31 — Trace immuable de chaque décision admin sur un transfert en
+    revue AML (Fig. 10, points 4/5). ``motif`` reste STRICTEMENT interne : il ne
+    doit jamais être injecté tel quel dans une notification utilisateur (voir
+    DecideAMLReviewUseCase)."""
+
+    class Action(models.TextChoices):
+        REQUEST_DOCS = "REQUEST_DOCS", "Documents complémentaires demandés"
+        APPROVE = "APPROVE", "Approuvé (1er niveau)"
+        REJECT = "REJECT", "Rejeté (1er niveau)"
+        ESCALATE = "ESCALATE", "Escaladé"
+        ESCALATED_APPROVE = "ESCALATED_APPROVE", "Approuvé (2e niveau)"
+        ESCALATED_REJECT = "ESCALATED_REJECT", "Rejeté (2e niveau)"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    transaction_id = models.CharField(max_length=100, db_index=True)
+    admin = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="aml_admin_decisions",
+    )
+    action = models.CharField(max_length=24, choices=Action.choices)
+    # Motif (REJECT, obligatoire) ou commentaire (ESCALATE, optionnel) — interne
+    # uniquement, jamais exposé à l'utilisateur final.
+    motif = models.TextField(blank=True, default="")
+    # Hash de la transaction on-chain de CETTE décision (log_critical_event) —
+    # null pour ESCALATE (Fig. 10 : pas de log on-chain à cette étape précise).
+    tx_hash = models.CharField(max_length=100, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "compliance"
+        db_table = "compliance_aml_admin_audit_log"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AMLAdminAuditLog({self.transaction_id}, {self.action}, admin={self.admin_id})"
+
+
+class AMLSupportingDocumentModel(models.Model):
+    """KRYP-31 — Document complémentaire resoumis par l'utilisateur après une
+    demande admin (AWAITING_DOCS -> AML_PENDING_REVIEW), symétrique aux
+    documents KYC (KYCDocumentModel) mais scopé à un dossier AML plutôt qu'à la
+    vérification d'identité."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    transaction_id = models.CharField(max_length=100, db_index=True)
+    file_path = models.CharField(max_length=500)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "compliance"
+        db_table = "compliance_aml_supporting_documents"
+        ordering = ["-submitted_at"]
+
+    def __str__(self):
+        return f"AMLSupportingDocument({self.transaction_id})"
 
 
 class AuditQueueModel(models.Model):
