@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 from django.conf import settings
@@ -6,6 +7,15 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 from ...ports.blockchain_service import BlockchainServicePort
+
+# KRYP-37 — module-level (not per-instance) lock: a fresh Web3BlockchainService
+# is constructed at every call site (escrow_lock_task, payout_task, ...), so an
+# instance-level lock would not protect two back-to-back transactions sent from
+# the same wallet by two different instances within the same worker process
+# (e.g. escrow_release immediately followed by log_critical_event). Guards the
+# nonce-read → sign → send critical section only — never the receipt wait,
+# which can take several seconds and doesn't need to block other sends.
+_nonce_lock = threading.Lock()
 
 
 class BlockchainConfigError(RuntimeError):
@@ -118,15 +128,21 @@ class Web3BlockchainService(BlockchainServicePort):
         """Build, sign and send a state-changing contract call; return tx hash."""
         w3 = self._web3()
         account = self._signer()
-        tx = fn.build_transaction(
-            {
-                "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
-                "chainId": self._chain_id,
-            }
-        )
-        signed = w3.eth.account.sign_transaction(tx, self._private_key)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        # KRYP-37 — "pending" (not the default "latest"): a transaction just
+        # broadcast by a rapidly-preceding call (e.g. escrow_release right
+        # before log_critical_event) isn't mined yet, so "latest" wouldn't see
+        # it and would hand out the same nonce again ("nonce too low"). The
+        # lock closes the remaining read-then-send race even with "pending".
+        with _nonce_lock:
+            tx = fn.build_transaction(
+                {
+                    "from": account.address,
+                    "nonce": w3.eth.get_transaction_count(account.address, "pending"),
+                    "chainId": self._chain_id,
+                }
+            )
+            signed = w3.eth.account.sign_transaction(tx, self._private_key)
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
         w3.eth.wait_for_transaction_receipt(tx_hash)
         # This installed hexbytes/web3.py version's HexBytes.hex() no longer
         # auto-prefixes with "0x" (older versions did) — normalize explicitly.

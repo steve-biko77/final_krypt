@@ -155,6 +155,28 @@ class Web3BlockchainServiceTests(SimpleTestCase):
         self.assertEqual(built["chainId"], 80002)
         self.assertEqual(built["nonce"], 7)
         self.assertEqual(built["from"], "0xSender")
+        # KRYP-37 — "pending", jamais le défaut "latest" (une transaction tout
+        # juste envoyée n'est pas encore minée, donc "latest" réutiliserait le
+        # même nonce -> "nonce too low" sur des envois rapprochés).
+        w3.eth.get_transaction_count.assert_called_once_with("0xSender", "pending")
+
+    def test_send_holds_nonce_lock_during_critical_section(self):
+        """KRYP-37 — le verrou applicatif est bien tenu pendant lecture-nonce +
+        envoi, et relâché ensuite (pas de deadlock, pas de faux positif)."""
+        from contexts.blockchain.adapters.services import web3_blockchain_service as mod
+
+        web3_cls, w3 = _make_web3_mock()
+
+        def _get_transaction_count(*args, **kwargs):
+            self.assertTrue(mod._nonce_lock.locked())
+            return 7
+        w3.eth.get_transaction_count.side_effect = _get_transaction_count
+
+        with mock.patch(WEB3_PATH, web3_cls):
+            svc = self._service()
+            svc.escrow_lock(TRANSFER_ID, 100)
+
+        self.assertFalse(mod._nonce_lock.locked())
 
     # --------------------------------------------------------- error paths
     def test_missing_addresses_file_raises_on_call_not_construction(self):
@@ -365,6 +387,10 @@ class SubmitAuditBatchTaskTests(TestCase):
         premier lot (ESCROWED seul), puis un second (DELIVERED seul), et on
         vérifie que le batch récupéré par event_type est bien celui de livraison.
         """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
         from contexts.blockchain.models import PendingAuditHash
         from contexts.blockchain.tasks import submit_audit_batch_task
 
@@ -375,7 +401,17 @@ class SubmitAuditBatchTaskTests(TestCase):
         r1 = submit_audit_batch_task()
 
         # 2e lot : uniquement la feuille DELIVERED (créée après le 1er lot).
-        self._pending(txid, event_type=PendingAuditHash.EVENT_DELIVERED, leaf=_leaf(f"{txid}:D"))
+        # KRYP-37 — batch_id dérive désormais de periodStart (created_at) :
+        # created_at avancé d'un cycle Beat réaliste (15 min) pour obtenir un
+        # periodStart distinct, comme deux lots réellement soumis à 15 min
+        # d'écart (un appel immédiat dans le même test tomberait sinon dans la
+        # même seconde que le 1er lot).
+        delivered_row = self._pending(
+            txid, event_type=PendingAuditHash.EVENT_DELIVERED, leaf=_leaf(f"{txid}:D")
+        )
+        PendingAuditHash.objects.filter(pk=delivered_row.pk).update(
+            created_at=timezone.now() + timedelta(minutes=15)
+        )
         mock_service_cls.return_value.submit_audit_batch.return_value = "0xdeliveredbatch"
         r2 = submit_audit_batch_task()
 
@@ -422,5 +458,7 @@ class SubmitAuditBatchTaskTests(TestCase):
 
         self.assertTrue(result["submitted"])
         self.assertEqual(result["count"], 1)  # seule la ligne non batchée
-        # batch_id monotone : 1 déjà pris → 2.
-        self.assertEqual(result["batch_id"], 2)
+        # KRYP-37 — batch_id = periodStart (timestamp Unix), plus un compteur
+        # local : indépendant du batch_id=1 déjà pris par la ligne batchée.
+        self.assertNotEqual(result["batch_id"], 1)
+        self.assertGreater(result["batch_id"], 1_000_000_000)  # ordre de grandeur Unix

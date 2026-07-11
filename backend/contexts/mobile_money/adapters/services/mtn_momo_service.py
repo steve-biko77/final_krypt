@@ -91,6 +91,15 @@ class MTNMoMoService(MobileMoneyServicePort):
     def _resource(self) -> str:
         return _RESOURCE_BY_VERSION.get(self._version, "transfer")
 
+    def _currency(self) -> str:
+        """KRYP-37 — Confirmed empirically against the real MTN sandbox (not
+        documented anywhere retrievable): the Remittance sandbox rejects the
+        real payout currency with HTTP 500 ``{"code":"INVALID_CURRENCY"}``
+        regardless of the actual value sent (``"XAF"`` here) — only ``"EUR"``
+        is accepted, whatever the target market. Production
+        (``target_environment != "sandbox"``) uses the real currency."""
+        return "EUR" if self._target_env == "sandbox" else "XAF"
+
     def _require_config(self) -> None:
         missing = [
             name for name, val in (
@@ -203,9 +212,10 @@ class MTNMoMoService(MobileMoneyServicePort):
             "Content-Type": "application/json",
         }
         amount_str = str(Decimal(amount_xaf).quantize(Decimal("1")))
+        currency = self._currency()
         body = {
             "amount": amount_str,
-            "currency": "XAF",
+            "currency": currency,
             "externalId": transfer_id,
             "payee": {"partyIdType": "MSISDN", "partyId": momo_number},
             "payerMessage": "Transfert KRYPT",
@@ -215,7 +225,7 @@ class MTNMoMoService(MobileMoneyServicePort):
             # v2_0 cashtransfer enriches the body (confirmed field list).
             body.update({
                 "originalAmount": amount_str,
-                "originalCurrency": "XAF",
+                "originalCurrency": currency,
                 "payerFirstName": "KRYPT",
                 "payerSurName": "Transfer",
                 "originatingCountry": "FR",

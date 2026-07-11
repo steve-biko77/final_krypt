@@ -8,7 +8,6 @@ the single root on-chain — never one event per transfer (mémoire ch.1 Phase 2
 import logging
 
 from celery import shared_task
-from django.db.models import Max
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +28,19 @@ def submit_audit_batch_task() -> dict:
     tree = MerkleTree(leaves)
     root_hex = tree.root_hex()
 
-    # batch_id monotone croissant côté Django (Beat mono-worker : pas de collision
-    # réaliste). Le contrat reverte de toute façon si le batchId existe déjà.
-    max_batch = PendingAuditHash.objects.aggregate(m=Max("batch_id"))["m"] or 0
-    batch_id = max_batch + 1
-
     period_start = int(min(row.created_at for row in pending).timestamp())
     period_end = int(max(row.created_at for row in pending).timestamp())
+
+    # KRYP-37 — periodStart (déjà un paramètre de submitBatch) sert directement
+    # de batchId, plutôt qu'un compteur local ("max+1") : ce compteur repart de
+    # zéro à chaque DB de test recréée alors que le compteur on-chain persiste
+    # entre les runs, provoquant un BatchAlreadyExists sur des runs e2e_real
+    # répétés. periodStart ne dépend d'aucun état local à synchroniser avec la
+    # chaîne — deux batches ne peuvent pas partager le même periodStart à la
+    # seconde près en usage réaliste (fenêtres de 15 min), donc les collisions
+    # deviennent pratiquement impossibles. AuditTrail.batchId est un uint256 sans
+    # contrainte de séquence, seulement d'unicité (cf. AuditTrail.sol).
+    batch_id = period_start
 
     tx_hash = Web3BlockchainService().submit_audit_batch(
         batch_id, root_hex, len(pending), period_start, period_end

@@ -59,7 +59,10 @@ class MTNMoMoServiceTests(SimpleTestCase):
         transfer_call = mock_requests.post.call_args_list[1]
         self.assertIn("/remittance/v1_0/transfer", transfer_call.args[0])
         body = transfer_call.kwargs["json"]
-        self.assertEqual(body["currency"], "XAF")
+        # KRYP-37 — sandbox (défaut de _mtn_service()) n'accepte que "EUR",
+        # confirmé empiriquement contre le vrai sandbox MTN (XAF -> 500
+        # INVALID_CURRENCY).
+        self.assertEqual(body["currency"], "EUR")
         self.assertEqual(body["payee"]["partyId"], "242066000002")
         # Idempotency header present and equal to the returned payout id.
         headers = transfer_call.kwargs["headers"]
@@ -74,7 +77,18 @@ class MTNMoMoServiceTests(SimpleTestCase):
 
         transfer_call = mock_requests.post.call_args_list[1]
         self.assertIn("/remittance/v2_0/cashtransfer", transfer_call.args[0])
-        self.assertEqual(transfer_call.kwargs["json"]["originalCurrency"], "XAF")
+        self.assertEqual(transfer_call.kwargs["json"]["originalCurrency"], "EUR")
+
+    @patch(_MTN)
+    def test_send_payout_production_uses_real_currency(self, mock_requests):
+        """KRYP-37 — hors sandbox, la devise réelle (XAF) est transmise telle quelle."""
+        mock_requests.post.side_effect = [_token_response(), MagicMock(status_code=202)]
+        service = _mtn_service(target_environment="production")
+
+        service.send_payout("242066000002", Decimal("1000"), "txn-3", "MTN_MOMO")
+
+        transfer_call = mock_requests.post.call_args_list[1]
+        self.assertEqual(transfer_call.kwargs["json"]["currency"], "XAF")
 
     @patch(_MTN)
     def test_send_payout_http_error_raises(self, mock_requests):
