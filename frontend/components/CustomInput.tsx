@@ -26,9 +26,12 @@ const CustomInput = ({ control, name, label, placeholder }: CustomInput) => {
           </FormLabel>
           <div className="flex w-full flex-col">
             <FormControl>
-              <Input 
+              <Input
                 placeholder={placeholder}
-                className="input-class"
+                // h-11 (44px) : taille tactile minimale mobile (refonte
+                // frontend partie 2/4, point 5) — input-class ne fixe pas de
+                // hauteur, on l'ajoute explicitement ici.
+                className="input-class h-11"
                 type={name === 'password' ? 'password' : 'text'}
                 {...field}
               />

@@ -185,6 +185,7 @@ export default function DesignSystemPage() {
         description="Micro-interaction commune : légère élévation au survol (~150ms), sauf le variant lien."
       >
         <div className="flex flex-wrap items-center gap-3">
+          <Button variant="brand">Brand</Button>
           <Button variant="default">Default</Button>
           <Button variant="secondary">Secondary</Button>
           <Button variant="outline">Outline</Button>

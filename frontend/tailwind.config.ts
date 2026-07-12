@@ -69,7 +69,13 @@
                 },
                 fontSize: {
                     "10": ["10px", "14px"],
+                    "11": ["11px", "16px"],
                     "12": ["12px", "16px"],
+                    // Refonte frontend (partie 2/4) — "13" manquait de la palette alors
+                    // que "text-13" est déjà utilisé dans une quinzaine de fichiers
+                    // existants (jamais stylé jusqu'ici, faute de token défini) : ajout
+                    // purement additif, corrige ces usages sans rien changer d'autre.
+                    "13": ["13px", "18px"],
                     "14": ["14px", "20px"],
                     "16": ["16px", "24px"],
                     "18": ["18px", "22px"],

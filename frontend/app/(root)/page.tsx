@@ -1,13 +1,21 @@
 import HeaderBox from '@/components/HeaderBox'
 import KYCBanner from '@/components/KYCBanner'
+import LandingPage from '@/components/LandingPage'
 import { getKYCStatus } from '@/lib/actions/kyc.actions'
 import { getLoggedInUser } from '@/lib/actions/user.actions'
 
+// Refonte frontend (partie 2/4) — "/" sert désormais deux publics distincts :
+// visiteur anonyme → landing page publique (LandingPage) ; utilisateur
+// connecté → tableau de bord existant, inchangé. Le gate d'authentification
+// des AUTRES routes reste (root)/(protected)/layout.tsx.
 const Home = async () => {
-  const [loggedIn, kycData] = await Promise.all([
-    getLoggedInUser(),
-    getKYCStatus(),
-  ])
+  const loggedIn = await getLoggedInUser()
+
+  if (!loggedIn) {
+    return <LandingPage />
+  }
+
+  const kycData = await getKYCStatus()
 
   return (
     <section className="home">
@@ -16,7 +24,7 @@ const Home = async () => {
           <HeaderBox
             type="greeting"
             title="Bienvenue,"
-            user={loggedIn?.firstName ?? 'Guest'}
+            user={loggedIn.firstName}
             subtext="Gérez vos transferts France → Cameroun via Mobile Money"
           />
         </header>
