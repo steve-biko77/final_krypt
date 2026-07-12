@@ -211,3 +211,90 @@ export const getTracfinReportDownloadUrl = async (
   id: string,
 ): Promise<{ transaction_id: string; download_url: string; generated_at: string }> =>
   authedFetch(`/api/admin/aml/hard-blocked/${id}/tracfin-report`);
+
+// ─────────────────────────────────────────────────────────────────────────
+// KRYP-31 (partie 3/3) — Rapport de fin de journée (image 2, section 5).
+// N'agrège que des données déjà persistées (parties 1/3 et 2/3) — aucune
+// nouvelle logique de décision.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface AdminAMLDailyReportCounts {
+  approve: number;
+  reject: number;
+  escalate: number;
+  hard_block_documented: number;
+  hard_block_frozen: number;
+  hard_block_tracfin_generated: number;
+}
+
+export interface AdminAMLDailyReportDecision {
+  id: string;
+  created_at: string;
+  admin_id: string;
+  admin_email: string | null;
+  action: string;
+  transaction_id: string;
+  motif: string;
+  tx_hash: string | null;
+}
+
+export interface AdminAMLDailyReport {
+  date: string;
+  counts: AdminAMLDailyReportCounts;
+  total_decisions: number;
+  decisions: AdminAMLDailyReportDecision[];
+}
+
+export const getAdminAMLDailyReport = async (date?: string): Promise<AdminAMLDailyReport> => {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+  return authedFetch(`/api/admin/aml/daily-report${qs}`);
+};
+
+export interface AdminAMLDailyReportCSV {
+  filename: string;
+  content: string;
+}
+
+export const exportAdminAMLDailyReportCSV = async (
+  date?: string,
+): Promise<AdminAMLDailyReportCSV> => {
+  const jar = await cookies();
+  const token = jar.get('krypt-access-token')?.value;
+  if (!token) throw new Error('Non authentifié');
+
+  const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+  const res = await fetch(`${API_BASE}/api/admin/aml/daily-report/export-csv${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err as { reason?: string; error?: string }).reason
+      ?? (err as { error?: string }).error
+      ?? `Erreur ${res.status}`;
+    throw new Error(msg);
+  }
+
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `rapport-conformite-${date ?? 'aujourdhui'}.csv`;
+
+  return { filename, content: await res.text() };
+};
+
+export interface AdminAMLDailyReportArchiveResult {
+  date: string;
+  counts: AdminAMLDailyReportCounts;
+  total_decisions: number;
+  polygon_batch_id: string | null;
+  polygon_batch_tx_hash: string | null;
+  archived_at: string;
+}
+
+export const archiveAdminAMLDailyReport = async (
+  date?: string,
+): Promise<AdminAMLDailyReportArchiveResult> => {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+  return authedFetch(`/api/admin/aml/daily-report/archive${qs}`, { method: 'POST' });
+};

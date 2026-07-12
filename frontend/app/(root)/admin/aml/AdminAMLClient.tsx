@@ -44,6 +44,12 @@ export default function AdminAMLClient({ initialData, initialCount }: AdminAMLCl
           >
             Voir les alertes HARD_BLOCK →
           </Link>
+          <Link
+            href="/admin/aml/daily-report"
+            className="text-13 font-medium text-gray-700 hover:underline"
+          >
+            Rapport journalier →
+          </Link>
         </div>
       </div>
 

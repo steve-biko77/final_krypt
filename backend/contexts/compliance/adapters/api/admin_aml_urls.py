@@ -10,6 +10,11 @@ from .admin_aml_views import (
     AMLAdminPendingListView,
     AMLAdminRequestDocsView,
 )
+from .admin_daily_report_views import (
+    AMLAdminDailyReportArchiveView,
+    AMLAdminDailyReportExportCSVView,
+    AMLAdminDailyReportView,
+)
 from .admin_hard_block_views import (
     AMLAdminHardBlockedDocumentView,
     AMLAdminHardBlockedFreezeAccountView,
@@ -19,10 +24,10 @@ from .admin_hard_block_views import (
 )
 
 # NB : les chemins littéraux (escalated, escalated/<id>, escalated/<id>/decide,
-# hard-blocked, hard-blocked/<id>/..., history) doivent être déclarés AVANT les
-# motifs génériques <str:id>/... — sinon ces derniers les capturent en premier
-# (Django essaie les patterns dans l'ordre et <str:id> matche n'importe quel
-# segment, y compris "escalated"/"hard-blocked").
+# hard-blocked, hard-blocked/<id>/..., daily-report, history) doivent être
+# déclarés AVANT les motifs génériques <str:id>/... — sinon ces derniers les
+# capturent en premier (Django essaie les patterns dans l'ordre et <str:id>
+# matche n'importe quel segment, y compris "escalated"/"hard-blocked").
 urlpatterns = [
     path("pending", AMLAdminPendingListView.as_view(), name="admin-aml-pending"),
     path(
@@ -62,6 +67,21 @@ urlpatterns = [
         "hard-blocked/<str:id>/tracfin-report",
         AMLAdminHardBlockedTracfinReportDownloadView.as_view(),
         name="admin-aml-hard-blocked-tracfin-report-download",
+    ),
+    path(
+        "daily-report",
+        AMLAdminDailyReportView.as_view(),
+        name="admin-aml-daily-report",
+    ),
+    path(
+        "daily-report/export-csv",
+        AMLAdminDailyReportExportCSVView.as_view(),
+        name="admin-aml-daily-report-export-csv",
+    ),
+    path(
+        "daily-report/archive",
+        AMLAdminDailyReportArchiveView.as_view(),
+        name="admin-aml-daily-report-archive",
     ),
     path("history", AMLAdminHistoryView.as_view(), name="admin-aml-history"),
     path("<str:id>", AMLAdminDetailView.as_view(), name="admin-aml-detail"),

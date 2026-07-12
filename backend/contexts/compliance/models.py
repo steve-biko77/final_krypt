@@ -197,6 +197,36 @@ class TracfinReportModel(models.Model):
         return f"TracfinReport({self.transaction_id})"
 
 
+class DailyComplianceReportModel(models.Model):
+    """KRYP-31 (partie 3/3) — Archive figée du rapport de fin de journée (image
+    2, section 5). N'AGRÈGE que des données déjà persistées (AMLAdminAuditLog
+    des parties 1/3 et 2/3) et référence le batch Polygon du jour déjà produit
+    par le mécanisme AuditTrail existant (KRYP-25/27, PendingAuditHash) —
+    n'introduit aucun nouveau mécanisme d'ancrage on-chain ni de nouvelle
+    logique de décision."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    report_date = models.DateField(unique=True, db_index=True)
+    counts = models.JSONField(default=dict)
+    decisions = models.JSONField(default=list)
+    polygon_batch_id = models.CharField(max_length=100, null=True, blank=True)
+    polygon_batch_tx_hash = models.CharField(max_length=100, null=True, blank=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="archived_daily_reports",
+    )
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "compliance"
+        db_table = "compliance_daily_reports"
+        ordering = ["-report_date"]
+
+    def __str__(self):
+        return f"DailyComplianceReport({self.report_date})"
+
+
 class AuditQueueModel(models.Model):
     """
     Couche 4 — file d'audit a posteriori (seuils_production.md §2).

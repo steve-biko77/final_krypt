@@ -31,6 +31,9 @@ HARD_BLOCKED_FREEZE_URL = '/api/admin/aml/hard-blocked/{}/freeze-account'
 HARD_BLOCKED_TRACFIN_URL = '/api/admin/aml/hard-blocked/{}/generate-tracfin-report'
 HARD_BLOCKED_TRACFIN_DOWNLOAD_URL = '/api/admin/aml/hard-blocked/{}/tracfin-report'
 INITIATE_URL = '/api/transfer/initiate'
+DAILY_REPORT_URL = '/api/admin/aml/daily-report'
+DAILY_REPORT_CSV_URL = '/api/admin/aml/daily-report/export-csv'
+DAILY_REPORT_ARCHIVE_URL = '/api/admin/aml/daily-report/archive'
 
 _ADMIN_A = {
     'email': 'admin-a@krypt.fr', 'password': 'Admin3Pass!',
@@ -745,3 +748,179 @@ class HardBlockSectionTests(APITestCase):
 
         txn.refresh_from_db()
         self.assertEqual(txn.status, 'AML_BLOCKED')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KRYP-31 (partie 3/3) — Rapport de fin de journée (image 2, section 5) :
+# agrège UNIQUEMENT AMLAdminAuditLog (déjà écrit par les parties 1/3 et 2/3),
+# aucune nouvelle logique de décision.
+# ─────────────────────────────────────────────────────────────────────────────
+class DailyReportTests(APITestCase):
+
+    def setUp(self):
+        self.sender_access, self.sender_id = _register(self.client, _SENDER)
+
+    def _admin_client(self, payload=_ADMIN_A):
+        client = self.client_class()
+        access, admin_id = _make_staff_with_2fa(client, payload)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        return client, admin_id
+
+    def _log(self, admin_id, action, transaction_id=None, motif='', tx_hash=None):
+        from contexts.compliance.models import AMLAdminAuditLog
+        return AMLAdminAuditLog.objects.create(
+            transaction_id=transaction_id or str(uuid.uuid4()),
+            admin_id=uuid.UUID(admin_id),
+            action=action,
+            motif=motif,
+            tx_hash=tx_hash,
+        )
+
+    # ------------------------------------------------------------ aggregation
+    def test_daily_report_aggregates_decisions_correctly(self):
+        client, admin_id = self._admin_client()
+
+        self._log(admin_id, 'APPROVE', tx_hash='0xa1')
+        self._log(admin_id, 'APPROVE', tx_hash='0xa2')
+        self._log(admin_id, 'ESCALATED_APPROVE', tx_hash='0xa3')
+        self._log(admin_id, 'REJECT', motif='Bénéficiaire suspect', tx_hash='0xr1')
+        self._log(admin_id, 'ESCALATE', motif='Doute, second avis nécessaire')
+        self._log(admin_id, 'DOCUMENT', motif='Dossier documenté')
+        self._log(admin_id, 'FREEZE_ACCOUNT', tx_hash='0xf1')
+        self._log(admin_id, 'TRACFIN_REPORT_GENERATED', tx_hash='0xt1')
+
+        res = client.get(DAILY_REPORT_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        counts = res.data['counts']
+        self.assertEqual(counts['approve'], 3)
+        self.assertEqual(counts['reject'], 1)
+        self.assertEqual(counts['escalate'], 1)
+        self.assertEqual(counts['hard_block_documented'], 1)
+        self.assertEqual(counts['hard_block_frozen'], 1)
+        self.assertEqual(counts['hard_block_tracfin_generated'], 1)
+        self.assertEqual(res.data['total_decisions'], 8)
+        self.assertEqual(len(res.data['decisions']), 8)
+        tx_hashes = {d['tx_hash'] for d in res.data['decisions']}
+        self.assertIn('0xr1', tx_hashes)
+
+    def test_daily_report_defaults_to_today(self):
+        client, admin_id = self._admin_client()
+
+        today_log = self._log(admin_id, 'APPROVE', tx_hash='0xtoday')
+        yesterday_log = self._log(admin_id, 'REJECT', motif='hier', tx_hash='0xyesterday')
+        from contexts.compliance.models import AMLAdminAuditLog
+        from django.utils import timezone
+        import datetime as dt
+        AMLAdminAuditLog.objects.filter(pk=yesterday_log.pk).update(
+            created_at=timezone.now() - dt.timedelta(days=1)
+        )
+
+        res = client.get(DAILY_REPORT_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['date'], timezone.localdate().isoformat())
+        self.assertEqual(res.data['total_decisions'], 1)
+        self.assertEqual(res.data['decisions'][0]['id'], str(today_log.pk))
+
+    # -------------------------------------------------------------- export CSV
+    def test_export_csv_contains_all_decisions_with_correct_columns(self):
+        client, admin_id = self._admin_client()
+        self._log(admin_id, 'APPROVE', transaction_id='txn-approve-1', tx_hash='0xcsv1')
+        self._log(admin_id, 'REJECT', transaction_id='txn-reject-1', motif='motif rejet', tx_hash='0xcsv2')
+
+        res = client.get(DAILY_REPORT_CSV_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'text/csv')
+        self.assertIn('attachment', res['Content-Disposition'])
+        self.assertIn('.csv', res['Content-Disposition'])
+
+        import csv
+        import io
+        content = res.content.decode('utf-8')
+        rows = list(csv.reader(io.StringIO(content)))
+        self.assertEqual(
+            rows[0], ['timestamp', 'admin', 'type_decision', 'transaction_id', 'motif', 'tx_hash']
+        )
+        data_rows = rows[1:]
+        self.assertEqual(len(data_rows), 2)
+        transaction_ids = {r[3] for r in data_rows}
+        self.assertEqual(transaction_ids, {'txn-approve-1', 'txn-reject-1'})
+
+    def test_export_csv_includes_internal_motif_for_admin_audience(self):
+        client, admin_id = self._admin_client()
+        self._log(
+            admin_id, 'REJECT', transaction_id='txn-motif',
+            motif='Motif interne sensible : bénéficiaire lié à une entité tierce suspecte',
+            tx_hash='0xmotif',
+        )
+
+        res = client.get(DAILY_REPORT_CSV_URL)
+
+        content = res.content.decode('utf-8')
+        self.assertIn('Motif interne sensible', content)
+
+    # ---------------------------------------------------------------- archive
+    def test_archive_prevents_duplicate_for_same_date(self):
+        client, admin_id = self._admin_client()
+        self._log(admin_id, 'APPROVE', tx_hash='0xarch1')
+
+        first = client.post(DAILY_REPORT_ARCHIVE_URL)
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+
+        second = client.post(DAILY_REPORT_ARCHIVE_URL)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second.data['error'], 'ALREADY_ARCHIVED')
+
+        from contexts.compliance.models import DailyComplianceReportModel
+        from django.utils import timezone
+        self.assertEqual(
+            DailyComplianceReportModel.objects.filter(
+                report_date=timezone.localdate()
+            ).count(),
+            1,
+        )
+
+    def test_archive_includes_polygon_batch_reference(self):
+        client, admin_id = self._admin_client()
+        self._log(admin_id, 'APPROVE', tx_hash='0xarch2')
+
+        from contexts.blockchain.models import PendingAuditHash
+        PendingAuditHash.objects.create(
+            transaction_id=str(uuid.uuid4()),
+            event_type=PendingAuditHash.EVENT_ESCROWED,
+            leaf_hash='0x' + '11' * 32,
+            batched=True,
+            batch_id=1720000000,
+            batch_tx_hash='0xbatchhash',
+        )
+
+        res = client.post(DAILY_REPORT_ARCHIVE_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['polygon_batch_id'], '1720000000')
+        self.assertEqual(res.data['polygon_batch_tx_hash'], '0xbatchhash')
+
+        from contexts.compliance.models import DailyComplianceReportModel
+        from django.utils import timezone
+        archive = DailyComplianceReportModel.objects.get(report_date=timezone.localdate())
+        self.assertEqual(archive.polygon_batch_tx_hash, '0xbatchhash')
+
+    # ------------------------------------------------------------------- 2FA
+    def test_daily_report_requires_2fa_admin(self):
+        anon_client = self.client_class()
+        res = anon_client.get(DAILY_REPORT_URL)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        from contexts.identity.models import UserModel
+        staff_client = self.client_class()
+        staff_access, staff_id = _register(staff_client, _ADMIN_B)
+        UserModel.objects.filter(pk=staff_id).update(is_staff=True)
+        staff_client.credentials(HTTP_AUTHORIZATION=f'Bearer {staff_access}')
+        res2 = staff_client.get(DAILY_REPORT_URL)
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+
+        admin_client, _ = self._admin_client()
+        res3 = admin_client.get(DAILY_REPORT_URL)
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
