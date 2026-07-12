@@ -58,5 +58,6 @@ class DjangoORMUserRepository(UserRepository):
             is_kyc_verified=obj.is_kyc_verified,
             is_2fa_enabled=obj.is_2fa_enabled,
             totp_secret=obj.totp_secret,
+            is_staff=obj.is_staff,
             created_at=obj.created_at,
         )

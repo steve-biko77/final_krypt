@@ -1,0 +1,42 @@
+{
+  "search_config": {
+    "n_iter": 22,
+    "cv_folds": 3,
+    "scoring": "average_precision",
+    "search_duration_minutes": 404.2
+  },
+  "best_params": {
+    "colsample_bytree": 0.8439986631130484,
+    "gamma": 0.8331949117361643,
+    "learning_rate": 0.0516075168418653,
+    "max_depth": 3.0,
+    "min_child_weight": 4.0,
+    "n_estimators": 149.0,
+    "reg_alpha": 0.662522284353982,
+    "reg_lambda": 0.9675666141341164,
+    "scale_pos_weight": 343.0901750797284,
+    "subsample": 0.8186841117373118
+  },
+  "best_cv_score": 0.9974659421685764,
+  "test_metrics": {
+    "pr_auc": 0.9980315140573593,
+    "f1": 0.9584795321637427,
+    "precision": 0.9223410241980866,
+    "recall": 0.9975654290931223,
+    "roc_auc": 0.9988600052836903,
+    "confusion_matrix": [
+      [
+        552301,
+        138
+      ],
+      [
+        4,
+        1639
+      ]
+    ]
+  },
+  "inference_latency_ms": {
+    "mean": 1.732614996144548,
+    "p95": 3.012405114714051
+  }
+}

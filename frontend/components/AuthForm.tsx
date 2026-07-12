@@ -101,7 +101,7 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
               </h1>
             </div>
             <p className="text-16 font-normal text-gray-600">
-              Entrez le code de votre application d'authentification
+              Entrez le code de votre application d&apos;authentification
             </p>
           </div>
         </header>

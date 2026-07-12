@@ -1,0 +1,66 @@
+{
+  "f1": 0.995742092457421,
+  "precision": 0.9951367781155015,
+  "recall": 0.9963481436396835,
+  "roc_auc": 0.9985514455364191,
+  "pr_auc": 0.9979781099630849,
+  "accuracy": 0.9999747329817609,
+  "confusion_matrix": [
+    [
+      552431,
+      8
+    ],
+    [
+      6,
+      1637
+    ]
+  ],
+  "feature_importances": {
+    "error_balance_orig": 0.6163771748542786,
+    "newbalanceOrig": 0.24351783096790314,
+    "oldbalanceOrg": 0.07489355653524399,
+    "amount": 0.026556851342320442,
+    "newbalanceDest": 0.011901079677045345,
+    "type_cash_out": 0.010159051977097988,
+    "error_balance_dest": 0.01000325009226799,
+    "oldbalanceDest": 0.004069486632943153,
+    "hour_of_day": 0.002521745627745986
+  },
+  "inference_latency_ms": {
+    "mean": 1.5266550099477172,
+    "median": 1.250099972821772,
+    "p95": 2.8771299635991427,
+    "target_ms": 10.0,
+    "n_calls": 200
+  },
+  "dataset_sizes": {
+    "train_total": 2216327,
+    "train_fraud": 6570,
+    "test_total": 554082,
+    "test_fraud": 1643,
+    "test_fraud_rate": 0.002965265069069199
+  },
+  "scale_pos_weight": 336.34048706240486,
+  "hyperparameters": {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "subsample": 0.9,
+    "colsample_bytree": 0.9,
+    "scale_pos_weight": 336.34048706240486,
+    "eval_metric": "aucpr",
+    "n_jobs": -1,
+    "random_state": 42
+  },
+  "features": [
+    "amount",
+    "type_cash_out",
+    "hour_of_day",
+    "oldbalanceOrg",
+    "newbalanceOrig",
+    "oldbalanceDest",
+    "newbalanceDest",
+    "error_balance_orig",
+    "error_balance_dest"
+  ]
+}

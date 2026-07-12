@@ -30,6 +30,11 @@ class UserModel(AbstractBaseUser):
     is_staff = models.BooleanField(default=False)
     is_2fa_enabled = models.BooleanField(default=False)
     totp_secret = models.CharField(max_length=64, blank=True, default="")
+    # KRYP-31 (partie 2/3) — gel de compte suite à un cas HARD_BLOCK (image 2,
+    # section 4). Une fois gelé, l'utilisateur ne peut plus initier de nouveau
+    # transfert (voir InitiateTransferView) ; l'erreur retournée reste générique,
+    # cohérente avec la politique de non-divulgation déjà en place pour l'AML.
+    is_frozen = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     USERNAME_FIELD = "email"

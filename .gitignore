@@ -8,6 +8,11 @@ db.sqlite3
 frontend/node_modules/
 frontend/.next/
 
+# Blockchain (Hardhat build output)
+blockchain/node_modules/
+blockchain/artifacts/
+blockchain/cache/
+
 # Docker
 pgdata/
 miniodata/
@@ -15,7 +20,18 @@ miniodata/
 # Env
 .env
 .env.*
+!.env.example
 
 # IDE
 .idea/
 .vscode/
+ml_training/data/
+ml_training/venv/
+ml_training/models/*.pkl
+backend/.coverage
+backend/venv/
+__pycache__/
+*.pyc
+
+backend/.env
+.env

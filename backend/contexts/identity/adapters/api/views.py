@@ -53,6 +53,7 @@ def _user_to_dict(user: User) -> dict:
         "phone": user.phone,
         "is_kyc_verified": user.is_kyc_verified,
         "is_2fa_enabled": user.is_2fa_enabled,
+        "is_staff": user.is_staff,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
 
@@ -88,6 +89,9 @@ class RegisterView(APIView):
                 {"error": "Email already registered"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        from contexts.notification.tasks import notification_task
+        notification_task.delay("USER_REGISTERED", user.id, {})
 
         user_model = UserModel.objects.get(pk=user.id)
         return Response(

@@ -11,7 +11,7 @@ const TransactionHistory = async () => {
       </div>
       <div className='space-y-6 p-6'>
         <p className='text-16 text-gray-600'>
-          L'historique des transferts sera disponible prochainement.
+          L&apos;historique des transferts sera disponible prochainement.
         </p>
       </div>
     </div>

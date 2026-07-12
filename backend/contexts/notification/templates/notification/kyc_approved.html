@@ -1,0 +1,13 @@
+{% extends "notification/_base_email.html" %}
+{% block title %}Votre identité KRYPT est vérifiée{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 16px;font-size:22px;color:#039855;">Identité vérifiée</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#344054;">
+  Bonne nouvelle {{ recipient_name }} : votre identité a été vérifiée avec succès.
+  Vous pouvez désormais envoyer des transferts d'argent en toute simplicité.
+</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#344054;">
+  Envoyez votre premier transfert dès maintenant.
+</p>
+{% include "notification/_cta_button.html" with cta_label="Envoyer un transfert" %}
+{% endblock %}
