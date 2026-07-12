@@ -93,6 +93,17 @@
                 fontFamily: {
                     inter: "var(--font-inter)",
                     "ibm-plex-serif": "var(--font-ibm-plex-serif)",
+                    // Refonte frontend (partie 1/4) — font-heading (titres) et font-mono
+                    // (montants/chiffres/timestamps, tabular-nums) : voir app/layout.tsx.
+                    // font-mono remplace volontairement la pile monospace système par
+                    // défaut de Tailwind : déjà utilisé pour les hash on-chain (font-mono
+                    // existant dans TransferTimeline etc.), qui bénéficient donc aussi du
+                    // registre "financier fiable" sans changement de leur code.
+                    heading: ["var(--font-plus-jakarta-sans)", "sans-serif"],
+                    mono: ["var(--font-ibm-plex-mono)", "monospace"],
+                },
+                letterSpacing: {
+                    heading: "-0.01em",
                 },
                 keyframes: {
                     "accordion-down": {
@@ -108,11 +119,26 @@
                         "0%, 100%": { opacity: "1" },
                         "50%": { opacity: "0.35" },
                     },
+                    // Refonte frontend (partie 1/4) — léger "pop" du montant FCFA du
+                    // AmountConverter à chaque recalcul (~180ms, cf. motion-reduce sur
+                    // le composant).
+                    "amount-pop": {
+                        "0%": { transform: "scale(1)" },
+                        "40%": { transform: "scale(1.06)" },
+                        "100%": { transform: "scale(1)" },
+                    },
+                    // Refonte frontend (partie 1/4) — pointillés défilants du segment
+                    // parcouru de TransferRouteIndicator (mode actif uniquement).
+                    "route-dash": {
+                        to: { strokeDashoffset: "-14" },
+                    },
                 },
                 animation: {
                     "accordion-down": "accordion-down 0.2s ease-out",
                     "accordion-up": "accordion-up 0.2s ease-out",
                     "timeline-pulse": "timeline-pulse 1.6s ease-in-out infinite",
+                    "amount-pop": "amount-pop 180ms ease-out",
+                    "route-dash": "route-dash 900ms linear infinite",
                 },
             },
         },
