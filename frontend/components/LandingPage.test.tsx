@@ -19,7 +19,7 @@ describe('LandingPage', () => {
 
     const expected = normalizeSpaces(formatXaf(convertEurToXafLocal(100).amountXaf))
     const actual = normalizeSpaces(
-      screen.getByTestId('amount-converter-result').textContent ?? ''
+      screen.getByTestId('amount-conversion-result').textContent ?? ''
     )
     expect(actual).toBe(expected)
   })

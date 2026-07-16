@@ -937,6 +937,87 @@ class TransferStatusViewTests(APITestCase):
         self.assertIsNone(res.data['batch_tx_hash'])
 
 
+class MyTransfersViewTests(APITestCase):
+    """Refonte frontend (partie 3/4) — GET /api/transfer/mine, liste des
+    transferts récents de l'émetteur connecté pour le tableau de bord. Même
+    forme de payload que /status (_build_transfer_status_payload partagée) :
+    on vérifie ici surtout le tri, la limite et l'isolation par utilisateur."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _create_transaction(self, sender_id=None, **overrides):
+        from contexts.transfer.models import TransactionModel
+        defaults = dict(
+            sender_id=uuid.UUID(sender_id or self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('100.00'),
+            fees_eur=Decimal('1.50'),
+            amount_xaf=Decimal('64611.76'),
+            status='ESCROWED',
+        )
+        defaults.update(overrides)
+        return TransactionModel.objects.create(**defaults)
+
+    def test_mine_returns_only_current_user_transfers_sorted_recent_first(self):
+        from contexts.identity.models import UserModel
+        from contexts.transfer.models import TransactionModel
+
+        # Pas besoin d'un second utilisateur authentifié : seul un sender_id
+        # distinct compte pour vérifier l'isolation par utilisateur.
+        other_user = UserModel.objects.create_user(
+            email='other-sender@krypt.fr', password='Secur3Pass!',
+            first_name='Autre', last_name='Sender', phone='+237699000099',
+        )
+        self._create_transaction(beneficiary_name='Ancien')
+        newest = self._create_transaction(beneficiary_name='Recent')
+        TransactionModel.objects.create(
+            sender_id=other_user.pk,
+            beneficiary_name='Pas le mien',
+            beneficiary_country='CM',
+            momo_number='+237699000003',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32000.00'),
+            status='DELIVERED',
+        )
+
+        res = self.client.get('/api/transfer/mine')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [r['beneficiary_name'] for r in res.data['results']]
+        self.assertEqual(names, ['Recent', 'Ancien'])
+        self.assertEqual(res.data['results'][0]['transaction_id'], str(newest.id))
+        self.assertNotIn('Pas le mien', names)
+
+    def test_mine_respects_limit_param(self):
+        for _ in range(3):
+            self._create_transaction()
+
+        res = self.client.get('/api/transfer/mine?limit=2')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['count'], 2)
+
+    def test_mine_requires_authentication(self):
+        anon_client = self.client_class()
+        res = anon_client.get('/api/transfer/mine')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_mine_empty_when_no_transfers(self):
+        res = self.client.get('/api/transfer/mine')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['count'], 0)
+        self.assertEqual(res.data['results'], [])
+
+
 class CheckEscrowTimeoutsTaskTests(APITestCase):
     """Job Beat 24h : transferts bloqués en ESCROWED > 24h → refund forcé."""
 

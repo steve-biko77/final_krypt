@@ -1,14 +1,16 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
-export type JourneyCardStatus = 'done' | 'active' | 'pending' | 'error'
+export type JourneyCardStatus = 'done' | 'active' | 'pending' | 'error' | 'cancelled'
 
 const STATUS_BADGE: Record<JourneyCardStatus, { label: string; variant: 'success' | 'active' | 'secondary' | 'destructive' }> = {
   done: { label: 'Terminé', variant: 'success' },
   active: { label: 'En cours', variant: 'active' },
   pending: { label: 'En attente', variant: 'secondary' },
   error: { label: 'Erreur', variant: 'destructive' },
+  cancelled: { label: 'Annulé', variant: 'secondary' },
 }
 
 function initials(name: string): string {
@@ -25,6 +27,13 @@ export interface JourneyCardProps {
   /** Si fourni, la carte devient un lien cliquable (micro-interaction point 6). */
   href?: string
   className?: string
+  /**
+   * Refonte partie 3/4 — remplace le badge de statut par une route miniature
+   * (voir TransferRouteIndicator mode="mini") pour les transferts non
+   * terminaux. Optionnel et rétrocompatible : sans cette prop, le badge de
+   * statut classique s'affiche comme avant.
+   */
+  routeIndicator?: ReactNode
 }
 
 /**
@@ -39,6 +48,7 @@ export default function JourneyCard({
   status,
   href,
   className,
+  routeIndicator,
 }: JourneyCardProps) {
   const badge = STATUS_BADGE[status]
   const amountLabel = amountEur.toLocaleString('fr-FR', {
@@ -49,27 +59,31 @@ export default function JourneyCard({
   const content = (
     <div
       className={cn(
-        'flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3 sm:p-4 transition-all duration-150',
+        'flex flex-col gap-2 rounded-xl border border-gray-200 bg-white p-3 sm:p-4 transition-all duration-150',
         href && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-chart',
         className
       )}
       data-testid="journey-card"
     >
-      <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-blue-25 font-heading text-14 font-bold text-blue-700">
-        {initials(beneficiaryName)}
+      <div className="flex items-center gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-blue-25 font-heading text-14 font-bold text-blue-700">
+          {initials(beneficiaryName)}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-14 font-semibold text-gray-900">{beneficiaryName}</p>
+          <p className="truncate text-12 text-gray-500">{beneficiaryCity}</p>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="font-mono text-14 tabular-nums font-semibold text-gray-900">
+            {amountLabel} €
+          </span>
+          {!routeIndicator && <Badge variant={badge.variant}>{badge.label}</Badge>}
+        </div>
       </div>
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-14 font-semibold text-gray-900">{beneficiaryName}</p>
-        <p className="truncate text-12 text-gray-500">{beneficiaryCity}</p>
-      </div>
-
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <span className="font-mono text-14 tabular-nums font-semibold text-gray-900">
-          {amountLabel} €
-        </span>
-        <Badge variant={badge.variant}>{badge.label}</Badge>
-      </div>
+      {routeIndicator && <div data-testid="journey-card-route">{routeIndicator}</div>}
     </div>
   )
 

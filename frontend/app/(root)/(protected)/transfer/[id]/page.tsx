@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react'
 
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import TransferTimeline from '@/components/TransferTimeline'
 import {
   cancelTransfer,
@@ -17,6 +19,7 @@ import {
   isTerminalStatus,
   overallState,
   overallStateLabel,
+  type OverallState,
 } from '@/lib/transferTimeline'
 
 const POLL_INTERVAL_MS = 5000
@@ -33,22 +36,18 @@ function formatXAF(value: string): string {
   return Math.round(n).toLocaleString('fr-FR')
 }
 
+// Refonte frontend (partie 3/4) — mêmes tokens de Badge que JourneyCard
+// (components/ui/badge.tsx), pas une palette ad-hoc parallèle.
+const OVERALL_BADGE_VARIANT: Record<OverallState, 'success' | 'active' | 'secondary' | 'destructive'> = {
+  delivered: 'success',
+  in_progress: 'active',
+  error: 'destructive',
+  cancelled: 'secondary',
+}
+
 function OverallBadge({ data }: { data: TransferStatus }) {
   const state = overallState(data.status)
-  const label = overallStateLabel(data.status)
-  const cls =
-    state === 'delivered'
-      ? 'bg-green-100 text-green-700'
-      : state === 'cancelled'
-        ? 'bg-gray-100 text-gray-600'
-        : state === 'error'
-          ? 'bg-red-100 text-red-700'
-          : 'bg-blue-100 text-blue-700'
-  return (
-    <span className={`inline-flex items-center px-3 py-1 rounded-full text-12 font-semibold ${cls}`}>
-      {label}
-    </span>
-  )
+  return <Badge variant={OVERALL_BADGE_VARIANT[state]}>{overallStateLabel(data.status)}</Badge>
 }
 
 export default function TransferTrackingPage() {
@@ -115,7 +114,7 @@ export default function TransferTrackingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-14 text-gray-400 py-10">
+      <div className="flex items-center gap-2 text-14 text-gray-400 py-10 p-4 sm:p-8">
         <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
         Chargement du suivi…
       </div>
@@ -124,17 +123,19 @@ export default function TransferTrackingPage() {
 
   if (error && !data) {
     return (
-      <div className="flex items-start gap-2 p-4 rounded-lg bg-red-50 border border-red-200 max-w-xl">
-        <AlertCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
-        <div>
-          <p className="text-14 font-semibold text-red-700">Suivi indisponible</p>
-          <p className="text-13 text-red-700 mt-1">{error}</p>
-          <Link
-            href="/transfer"
-            className="inline-flex items-center gap-1 mt-3 text-13 font-medium text-blue-600 hover:underline"
-          >
-            <ArrowLeft size={14} /> Retour aux transferts
-          </Link>
+      <div className="p-4 sm:p-8">
+        <div className="flex items-start gap-2 p-4 rounded-xl bg-red-50 border border-red-200 max-w-xl">
+          <AlertCircle size={18} className="text-red-500 mt-0.5 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="text-14 font-semibold text-red-700">Suivi indisponible</p>
+            <p className="text-13 text-red-700 mt-1">{error}</p>
+            <Link
+              href="/transfer"
+              className="inline-flex items-center gap-1 mt-3 text-13 font-medium text-blue-600 hover:underline"
+            >
+              <ArrowLeft size={14} /> Retour aux transferts
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -156,11 +157,11 @@ export default function TransferTrackingPage() {
   })
 
   return (
-    <div className="w-full max-w-xl">
-      {/* En-tête récapitulatif */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 mb-8">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 text-18 font-bold text-gray-900 font-mono">
+    <div className="w-full max-w-xl p-4 sm:p-8">
+      {/* En-tête récapitulatif — montant en police mono (point 3, partie 3/4) */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 mb-8 shadow-form">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-18 tabular-nums font-bold text-gray-900">
             <span>{formatEUR(data.amount_eur)} €</span>
             <ArrowRight size={16} className="text-gray-400" aria-hidden="true" />
             <span>{formatXAF(data.amount_xaf)} FCFA</span>
@@ -171,18 +172,20 @@ export default function TransferTrackingPage() {
           {data.beneficiary_name}
           <span className="text-13 font-normal text-gray-500"> · {data.beneficiary_country}</span>
         </p>
-        <p className="text-12 text-gray-400 font-mono mt-1">Réf. {data.transaction_id}</p>
+        <p className="text-12 font-mono text-gray-400 mt-1">Réf. {data.transaction_id}</p>
 
         {isCancellable(data.status) && (
           <div className="mt-4">
-            <button
+            <Button
               type="button"
               onClick={handleCancel}
               disabled={cancelling}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-13 font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1"
+              variant="outline"
+              size="sm"
+              className="text-red-600 border-red-200 hover:bg-red-50"
             >
               {cancelling ? 'Annulation…' : 'Annuler le transfert'}
-            </button>
+            </Button>
             {cancelError && (
               <p className="text-12 text-red-600 mt-1">{cancelError}</p>
             )}

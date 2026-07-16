@@ -9,6 +9,8 @@ import {
   useElements,
   useStripe,
 } from '@stripe/react-stripe-js'
+import { Button } from '@/components/ui/button'
+import AmountConversionDisplay from '@/components/AmountConversionDisplay'
 import {
   initiateTransfer,
   simulateTransfer,
@@ -36,10 +38,6 @@ const COUNTRIES = [
   { code: 'SN', label: 'Sénégal (+221)' },
   { code: 'CI', label: "Côte d'Ivoire (+225)" },
 ]
-
-function formatXAF(xaf: string): string {
-  return Math.round(parseFloat(xaf)).toLocaleString('fr-FR')
-}
 
 export default function TransferStepper() {
   const [step, setStep] = useState<Step>('recipient')
@@ -122,46 +120,52 @@ export default function TransferStepper() {
     }, 300)
   }
 
+  const STEP_LABELS: Record<Step, string> = {
+    recipient: 'Destinataire',
+    amount: 'Montant',
+    payment: 'Paiement',
+  }
+
   return (
     <div className="w-full max-w-xl">
-      {/* Stepper header */}
-      <div className="flex items-center gap-3 mb-8">
+      {/* Stepper header — libellés inline dès sm: ; en dessous, seul le
+          libellé de l'étape courante s'affiche (repères + connecteurs
+          resserrés) pour ne jamais déborder à 375px. */}
+      <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
         {(['recipient', 'amount', 'payment'] as Step[]).map((s, i) => {
           const order: Step[] = ['recipient', 'amount', 'payment']
           const currentIndex = order.indexOf(step)
           const done = i < currentIndex
-          const label =
-            s === 'recipient'
-              ? 'Destinataire'
-              : s === 'amount'
-              ? 'Montant'
-              : 'Paiement'
           return (
-            <div key={s} className="flex items-center gap-3">
+            <div key={s} className="flex items-center gap-2 sm:gap-3">
               <div
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-14 font-bold transition-colors ${
+                className={`flex items-center justify-center w-8 h-8 rounded-full font-mono text-14 font-bold tabular-nums transition-colors shrink-0 ${
                   step === s
                     ? 'bg-blue-600 text-white'
                     : done
-                    ? 'bg-green-100 text-green-700'
+                    ? 'bg-success-100 text-success-700'
                     : 'bg-gray-100 text-gray-400'
                 }`}
               >
                 {done ? <CheckCircle size={16} /> : i + 1}
               </div>
               <span
-                className={`text-14 font-medium ${
+                className={`hidden sm:inline text-14 font-medium ${
                   step === s ? 'text-gray-900' : 'text-gray-400'
                 }`}
               >
-                {label}
+                {STEP_LABELS[s]}
               </span>
-              {i < 2 && <div className="w-12 h-px bg-gray-200 mx-1" />}
+              {i < 2 && <div className="w-6 sm:w-12 h-px bg-gray-200 mx-1 shrink-0" />}
             </div>
           )
         })}
       </div>
+      <p className="sm:hidden text-14 font-semibold text-gray-900 mb-4">
+        {STEP_LABELS[step]}
+      </p>
 
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-form">
       {/* ── STEP 1 : Destinataire ── */}
       {step === 'recipient' && (
         <div className="flex flex-col gap-5">
@@ -176,7 +180,7 @@ export default function TransferStepper() {
                 setRecipient((r) => ({ ...r, name: e.target.value }))
               }
               placeholder="Jean-Pierre Mbarga"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -189,7 +193,7 @@ export default function TransferStepper() {
               onChange={(e) =>
                 setRecipient((r) => ({ ...r, country: e.target.value }))
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-14 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-14 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {COUNTRIES.map((c) => (
                 <option key={c.code} value={c.code}>
@@ -210,7 +214,7 @@ export default function TransferStepper() {
                 setRecipient((r) => ({ ...r, mobileNumber: e.target.value }))
               }
               placeholder="+237 6XX XXX XXX"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -227,7 +231,7 @@ export default function TransferStepper() {
               ).map((op) => (
                 <label
                   key={op.value}
-                  className={`flex-1 flex items-center gap-2 border rounded-lg px-4 py-3 cursor-pointer transition-colors ${
+                  className={`flex-1 flex items-center gap-2 min-h-11 border rounded-lg px-4 py-3 cursor-pointer transition-colors ${
                     recipient.operator === op.value
                       ? 'border-blue-600 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-300'
@@ -251,13 +255,15 @@ export default function TransferStepper() {
             </div>
           </div>
 
-          <button
+          <Button
             onClick={() => setStep('amount')}
             disabled={!recipientValid}
-            className="flex items-center justify-center gap-2 w-full py-3 rounded-lg bg-blue-600 text-white text-14 font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition mt-2"
+            variant="brand"
+            size="lg"
+            className="w-full mt-2"
           >
             Suivant <ArrowRight size={16} />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -275,36 +281,22 @@ export default function TransferStepper() {
             </p>
           </div>
 
-          {/* Champ montant */}
+          {/* Champ montant + résultat — composant visuel partagé avec
+              AmountConverter (partie 1/4), alimenté ici par la VRAIE
+              simulation serveur (source de vérité des règles métier/limites),
+              jamais par un calcul local. */}
           <div>
-            <label className="block text-14 font-medium text-gray-700 mb-1">
-              Montant à envoyer (EUR)
-            </label>
-            <div className="relative">
-              <input
-                type="number"
-                min="5"
-                max="5000"
-                step="1"
-                value={amountStr}
-                onChange={(e) => handleAmountChange(e.target.value)}
-                placeholder="Ex : 100"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-14 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-14 font-medium text-gray-500">
-                EUR
-              </span>
-            </div>
-            <p className="text-12 text-gray-400 mt-1">Min 5 EUR · Max 5 000 EUR</p>
+            <AmountConversionDisplay
+              amountEurValue={amountStr}
+              onAmountEurChange={handleAmountChange}
+              amountXaf={simulation ? parseFloat(simulation.amount_xaf) : null}
+              isLoading={isPending}
+              fromLabel="Montant à envoyer"
+              toLabel="Le bénéficiaire reçoit"
+              inputAriaLabel="Montant à envoyer en euros"
+            />
+            <p className="text-12 text-gray-400 mt-2">Min 5 EUR · Max 5 000 EUR</p>
           </div>
-
-          {/* Simulation en temps réel */}
-          {isPending && (
-            <div className="flex items-center gap-2 text-14 text-gray-400 py-2">
-              <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
-              Calcul en cours…
-            </div>
-          )}
 
           {simError && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
@@ -314,44 +306,26 @@ export default function TransferStepper() {
           )}
 
           {simulation && !isPending && (
-            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-              <div className="px-4 py-3 space-y-2">
-                <div className="flex justify-between text-14">
-                  <span className="text-gray-500">Montant envoyé</span>
-                  <span className="font-medium text-gray-900">
-                    {parseFloat(simulation.amount_eur).toFixed(2)} EUR
-                  </span>
-                </div>
-                <div className="flex justify-between text-14">
-                  <span className="text-gray-500">
-                    Frais KRYPT ({parseFloat(simulation.fees_percentage).toFixed(1)}%)
-                  </span>
-                  <span className="font-medium text-gray-900">
-                    − {parseFloat(simulation.fees_eur).toFixed(2)} EUR
-                  </span>
-                </div>
-                <div className="flex justify-between text-14">
-                  <span className="text-gray-500">Montant net</span>
-                  <span className="font-medium text-gray-900">
-                    {parseFloat(simulation.net_eur).toFixed(2)} EUR
-                  </span>
-                </div>
-                <div className="flex justify-between text-14">
-                  <span className="text-gray-500">Taux de change</span>
-                  <span className="font-medium text-gray-900">
-                    1 EUR = {simulation.exchange_rate} XAF
-                  </span>
-                </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-25 px-4 py-3 space-y-2">
+              <div className="flex justify-between text-14">
+                <span className="text-gray-500">
+                  Frais KRYPT ({parseFloat(simulation.fees_percentage).toFixed(1)}%)
+                </span>
+                <span className="font-mono tabular-nums font-medium text-gray-900">
+                  − {parseFloat(simulation.fees_eur).toFixed(2)} EUR
+                </span>
               </div>
-              <div className="border-t border-gray-200 px-4 py-4 bg-green-50">
-                <div className="flex justify-between items-center">
-                  <span className="text-14 font-semibold text-gray-700">
-                    Montant reçu
-                  </span>
-                  <span className="text-22 font-bold text-green-700">
-                    {formatXAF(simulation.amount_xaf)} FCFA
-                  </span>
-                </div>
+              <div className="flex justify-between text-14">
+                <span className="text-gray-500">Montant net</span>
+                <span className="font-mono tabular-nums font-medium text-gray-900">
+                  {parseFloat(simulation.net_eur).toFixed(2)} EUR
+                </span>
+              </div>
+              <div className="flex justify-between text-14">
+                <span className="text-gray-500">Taux de change</span>
+                <span className="font-mono tabular-nums font-medium text-gray-900">
+                  1 EUR = {simulation.exchange_rate} XAF
+                </span>
               </div>
             </div>
           )}
@@ -364,19 +338,22 @@ export default function TransferStepper() {
           )}
 
           <div className="flex gap-3 mt-2">
-            <button
+            <Button
               onClick={() => setStep('recipient')}
-              className="flex items-center justify-center gap-2 px-5 py-3 rounded-lg border border-gray-300 text-gray-700 text-14 font-semibold hover:bg-gray-50 transition"
+              variant="outline"
+              size="lg"
             >
               <ArrowLeft size={16} /> Retour
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleConfirm}
               disabled={!simulation || isPending || initiating}
-              className="flex-1 py-3 rounded-lg bg-blue-600 text-white text-14 font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              variant="brand"
+              size="lg"
+              className="flex-1"
             >
               {initiating ? 'Vérification en cours…' : 'Confirmer le transfert'}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -396,7 +373,7 @@ export default function TransferStepper() {
                   qu&apos;il sera validé.
                 </p>
                 {transactionId && (
-                  <p className="text-12 text-amber-600 mt-2">
+                  <p className="text-12 font-mono text-amber-600 mt-2">
                     Référence : {transactionId}
                   </p>
                 )}
@@ -409,6 +386,7 @@ export default function TransferStepper() {
           ) : null}
         </div>
       )}
+      </div>
     </div>
   )
 }
@@ -445,7 +423,7 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
   if (succeeded) {
     return (
       <div className="rounded-xl border border-green-200 bg-green-50 p-5 flex items-start gap-3">
-        <CheckCircle size={20} className="text-green-600 mt-0.5 shrink-0" />
+        <CheckCircle size={20} className="text-green-600 mt-0.5 shrink-0" aria-hidden="true" />
         <div>
           <p className="text-14 font-semibold text-green-800">
             Paiement confirmé.
@@ -460,30 +438,35 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 rounded-xl border border-gray-200 p-4 sm:p-5">
       <div>
         <label className="block text-14 font-medium text-gray-700 mb-1">
           Carte bancaire
         </label>
-        <div className="w-full border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-blue-500">
-          <CardElement options={{ style: { base: { fontSize: '14px' } } }} />
+        <div className="w-full min-h-11 flex items-center border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-blue-500">
+          <CardElement
+            options={{ style: { base: { fontSize: '14px' } } }}
+            className="w-full"
+          />
         </div>
       </div>
 
       {payError && (
         <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
-          <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
+          <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" aria-hidden="true" />
           <p className="text-13 text-red-700">{payError}</p>
         </div>
       )}
 
-      <button
+      <Button
         onClick={handlePay}
         disabled={!stripe || processing}
-        className="w-full py-3 rounded-lg bg-blue-600 text-white text-14 font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        variant="brand"
+        size="lg"
+        className="w-full"
       >
         {processing ? 'Paiement en cours…' : 'Payer'}
-      </button>
+      </Button>
     </div>
   )
 }

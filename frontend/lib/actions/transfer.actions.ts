@@ -133,6 +133,34 @@ export const getTransferStatus = async (
   return res.json();
 };
 
+export interface MyTransfersResponse {
+  count: number;
+  results: TransferStatus[];
+}
+
+// Refonte frontend (partie 3/4) — transferts récents de l'utilisateur connecté
+// (tableau de bord). Même forme que getTransferStatus (TransferStatus),
+// réutilisable telle quelle par buildTimeline côté client. Chargée sans
+// interaction utilisateur au rendu du tableau de bord (comme getKYCStatus) :
+// échoue silencieusement (liste vide) plutôt que de faire planter la page.
+export const getMyTransfers = async (limit = 5): Promise<MyTransfersResponse> => {
+  try {
+    const jar = await cookies();
+    const token = jar.get('krypt-access-token')?.value;
+    if (!token) return { count: 0, results: [] };
+
+    const res = await fetch(`${API_BASE}/api/transfer/mine?limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { count: 0, results: [] };
+
+    return await res.json();
+  } catch {
+    return { count: 0, results: [] };
+  }
+};
+
 export interface CancelTransferResult {
   transaction_id: string;
   status: TransactionStatus;

@@ -264,6 +264,58 @@ class StripeWebhookView(APIView):
         return Response({"received": True}, status=status.HTTP_200_OK)
 
 
+def _build_transfer_status_payload(transaction) -> dict:
+    """Projection Transaction -> payload JSON, partagée entre TransferStatusView
+    (un transfert) et MyTransfersView (refonte frontend partie 3/4 — liste des
+    transferts récents du tableau de bord) : même forme exacte, pour que le
+    frontend puisse réutiliser ``buildTimeline()`` telle quelle sur les deux,
+    sans une seconde projection divergente."""
+    # KRYP-27 — batch Polygon de l'événement de LIVRAISON spécifiquement.
+    # Un transfert produit deux PendingAuditHash (ESCROWED puis DELIVERED),
+    # potentiellement dans des lots différents : on filtre sur event_type
+    # pour lever l'ambiguïté. Null tant que la livraison n'est pas batchée
+    # (fenêtre de 15 min). merkle_proof reste en base, jamais exposé ici.
+    from contexts.blockchain.models import PendingAuditHash
+    delivered_audit = (
+        PendingAuditHash.objects.filter(
+            transaction_id=transaction.id,
+            event_type=PendingAuditHash.EVENT_DELIVERED,
+            batched=True,
+        ).first()
+    )
+
+    return {
+        "transaction_id": transaction.id,
+        "status": transaction.status.value,
+        "amount_eur": str(transaction.amount_eur),
+        "fees_eur": str(transaction.fees_eur),
+        "amount_xaf": str(transaction.amount_xaf),
+        "beneficiary_name": transaction.beneficiary_name,
+        # KRYP-27 — champs additionnels (lecture seule) pour la timeline
+        # de suivi temps réel. Déjà peuplés sur l'entité par _to_entity ;
+        # aucune migration ni changement de logique métier.
+        "beneficiary_country": transaction.beneficiary_country,
+        "operator": transaction.operator,
+        "escrow_tx_hash": transaction.escrow_tx_hash,
+        "payout_reference": transaction.payout_reference,
+        "created_at": (
+            transaction.created_at.isoformat() if transaction.created_at else None
+        ),
+        "updated_at": (
+            transaction.updated_at.isoformat() if transaction.updated_at else None
+        ),
+        "escrowed_at": (
+            transaction.escrowed_at.isoformat() if transaction.escrowed_at else None
+        ),
+        # KRYP-27 — traçabilité de l'étape "Fonds livrés" : lot Merkle
+        # AuditTrail dans lequel l'événement DELIVERED a été ancré.
+        "batch_id": delivered_audit.batch_id if delivered_audit else None,
+        "batch_tx_hash": (
+            delivered_audit.batch_tx_hash if delivered_audit else None
+        ),
+    }
+
+
 class TransferStatusView(APIView):
     """GET /api/transfer/<id>/status — consulter le statut d'un transfert."""
     permission_classes = [IsAuthenticated]
@@ -282,59 +334,26 @@ class TransferStatusView(APIView):
                 {"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN
             )
 
-        # KRYP-27 — batch Polygon de l'événement de LIVRAISON spécifiquement.
-        # Un transfert produit deux PendingAuditHash (ESCROWED puis DELIVERED),
-        # potentiellement dans des lots différents : on filtre sur event_type
-        # pour lever l'ambiguïté. Null tant que la livraison n'est pas batchée
-        # (fenêtre de 15 min). merkle_proof reste en base, jamais exposé ici.
-        from contexts.blockchain.models import PendingAuditHash
-        delivered_audit = (
-            PendingAuditHash.objects.filter(
-                transaction_id=transaction.id,
-                event_type=PendingAuditHash.EVENT_DELIVERED,
-                batched=True,
-            ).first()
-        )
+        return Response(_build_transfer_status_payload(transaction), status=status.HTTP_200_OK)
 
-        return Response(
-            {
-                "transaction_id": transaction.id,
-                "status": transaction.status.value,
-                "amount_eur": str(transaction.amount_eur),
-                "fees_eur": str(transaction.fees_eur),
-                "amount_xaf": str(transaction.amount_xaf),
-                "beneficiary_name": transaction.beneficiary_name,
-                # KRYP-27 — champs additionnels (lecture seule) pour la timeline
-                # de suivi temps réel. Déjà peuplés sur l'entité par _to_entity ;
-                # aucune migration ni changement de logique métier.
-                "beneficiary_country": transaction.beneficiary_country,
-                "operator": transaction.operator,
-                "escrow_tx_hash": transaction.escrow_tx_hash,
-                "payout_reference": transaction.payout_reference,
-                "created_at": (
-                    transaction.created_at.isoformat()
-                    if transaction.created_at
-                    else None
-                ),
-                "updated_at": (
-                    transaction.updated_at.isoformat()
-                    if transaction.updated_at
-                    else None
-                ),
-                "escrowed_at": (
-                    transaction.escrowed_at.isoformat()
-                    if transaction.escrowed_at
-                    else None
-                ),
-                # KRYP-27 — traçabilité de l'étape "Fonds livrés" : lot Merkle
-                # AuditTrail dans lequel l'événement DELIVERED a été ancré.
-                "batch_id": delivered_audit.batch_id if delivered_audit else None,
-                "batch_tx_hash": (
-                    delivered_audit.batch_tx_hash if delivered_audit else None
-                ),
-            },
-            status=status.HTTP_200_OK,
-        )
+
+class MyTransfersView(APIView):
+    """GET /api/transfer/mine?limit=5 — transferts récents de l'émetteur
+    connecté (refonte frontend partie 3/4, tableau de bord). Même forme de
+    payload que TransferStatusView (voir _build_transfer_status_payload)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            limit = min(max(int(request.query_params.get("limit", 5)), 1), 20)
+        except ValueError:
+            limit = 5
+
+        repo = DjangoORMTransactionRepository()
+        transactions = repo.find_by_sender(str(request.user.pk), limit=limit)
+
+        results = [_build_transfer_status_payload(t) for t in transactions]
+        return Response({"count": len(results), "results": results}, status=status.HTTP_200_OK)
 
 
 class CancelTransferView(APIView):
