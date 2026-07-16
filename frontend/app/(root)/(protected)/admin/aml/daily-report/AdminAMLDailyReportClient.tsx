@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { AlertCircle, Archive, Download, ExternalLink } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   archiveAdminAMLDailyReport,
   exportAdminAMLDailyReportCSV,
@@ -225,14 +226,24 @@ export default function AdminAMLDailyReportClient({
                   </td>
                   <td className="px-4 py-3">
                     {d.tx_hash ? (
-                      <a
-                        href={`${POLYGONSCAN_TX}/${d.tx_hash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-12"
-                      >
-                        Voir
-                      </a>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={`${POLYGONSCAN_TX}/${d.tx_hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline text-12"
+                          >
+                            Voir
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="max-w-56">
+                            Preuve on-chain de cette décision, vérifiable publiquement sur
+                            Polygonscan.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
                     ) : (
                       <span className="text-gray-400 text-12">—</span>
                     )}

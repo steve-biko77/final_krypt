@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { ArrowDown, ArrowRight, Loader2 } from 'lucide-react'
+import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { formatXaf } from '@/lib/amountConverter'
 
@@ -21,14 +22,48 @@ export interface AmountConversionDisplayProps {
   inputAriaLabel?: string
 }
 
+// Correctif Framer Motion (2/3) — remplace le "pop" d'échelle (partie 1/4)
+// par un comptage numérique fluide vers la nouvelle valeur, plus lisible.
+// Aucune animation au tout premier montage (rien dont "partir") : seuls les
+// changements de valeur sur une instance déjà montée sont animés.
+function AnimatedXafValue({ value }: { value: number }) {
+  const prefersReducedMotion = useReducedMotion()
+  const motionValue = useMotionValue(value)
+  const display = useTransform(motionValue, (latest) => formatXaf(latest))
+  const isFirstRender = useRef(true)
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      motionValue.set(value)
+      return
+    }
+    if (prefersReducedMotion) {
+      motionValue.set(value)
+      return
+    }
+    const controls = animate(motionValue, value, { duration: 0.5, ease: 'easeOut' })
+    return () => controls.stop()
+  }, [value, motionValue, prefersReducedMotion])
+
+  return (
+    <motion.span
+      className="w-full font-mono text-20 tabular-nums font-semibold text-black-1"
+      data-testid="amount-conversion-result"
+    >
+      {display}
+    </motion.span>
+  )
+}
+
 /**
  * Langage visuel signature (refonte frontend, partie 1/4, extrait en
  * sous-composant partie 3/4) : deux champs côte à côte reliés par une flèche,
- * montant en police mono, micro-animation sur le résultat à chaque
- * changement. Purement présentationnel — réutilisé avec deux sources de
- * données différentes (calcul local dans AmountConverter, simulation serveur
- * réelle dans le tunnel de transfert) pour une cohérence visuelle totale sans
- * dupliquer le markup.
+ * montant en police mono, comptage numérique fluide sur le résultat à chaque
+ * changement (correctif Framer Motion). Purement présentationnel — réutilisé
+ * avec deux sources de données différentes (calcul local dans
+ * AmountConverter, simulation serveur réelle dans le tunnel de transfert)
+ * pour une cohérence visuelle totale sans dupliquer le markup.
  */
 export default function AmountConversionDisplay({
   className,
@@ -40,15 +75,6 @@ export default function AmountConversionDisplay({
   toLabel = 'Le bénéficiaire reçoit',
   inputAriaLabel = 'Montant en euros',
 }: AmountConversionDisplayProps) {
-  const [popTick, setPopTick] = useState(0)
-
-  // Rejoue la micro-animation "pop" (~180ms) à chaque nouveau résultat — que
-  // ce résultat vienne d'un calcul local instantané ou d'une réponse API
-  // débouncée n'a aucune importance ici.
-  useEffect(() => {
-    if (amountXaf !== null) setPopTick((t) => t + 1)
-  }, [amountXaf])
-
   return (
     <div
       className={cn('flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4', className)}
@@ -88,13 +114,14 @@ export default function AmountConversionDisplay({
               <Loader2 size={16} className="animate-spin" aria-hidden="true" />
               Calcul en cours…
             </span>
+          ) : amountXaf !== null ? (
+            <AnimatedXafValue value={amountXaf} />
           ) : (
             <span
-              key={popTick}
-              className="w-full font-mono text-20 tabular-nums font-semibold text-black-1 animate-amount-pop motion-reduce:animate-none"
+              className="w-full font-mono text-20 tabular-nums font-semibold text-black-1"
               data-testid="amount-conversion-result"
             >
-              {amountXaf !== null ? formatXaf(amountXaf) : '—'}
+              —
             </span>
           )}
           <span className="text-14 font-mono text-gray-500 shrink-0">FCFA</span>

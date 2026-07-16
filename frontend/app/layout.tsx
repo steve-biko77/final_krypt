@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, IBM_Plex_Serif, Plus_Jakarta_Sans, IBM_Plex_Mono } from "next/font/google";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 
@@ -30,8 +32,10 @@ export default function RootLayout({
       <body
         className={` ${inter.variable} ${ibmPlexSerif.variable} ${plusJakartaSans.variable} ${ibmPlexMono.variable} font-sans antialiased`}
       >
-        
-        {children}
+        <TooltipProvider delayDuration={200}>
+          {children}
+          <Toaster position="top-center" />
+        </TooltipProvider>
       </body>
     </html>
   );

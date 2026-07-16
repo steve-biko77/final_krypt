@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, renderWithProviders as render, screen } from '@/lib/test-utils'
 import LandingPage from './LandingPage'
 import { convertEurToXafLocal, formatXaf } from '@/lib/amountConverter'
 

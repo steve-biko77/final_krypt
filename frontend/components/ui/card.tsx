@@ -2,9 +2,12 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-// Refonte frontend (partie 1/4) — `interactive` ajoute la micro-interaction
-// commune (translateY -2px au survol, ~150ms) uniquement pour les cartes
-// réellement cliquables (point 6 : jamais sur une carte purement informative).
+// Refonte frontend (partie 1/4, réappliqué après régénération via la CLI
+// shadcn officielle) — `interactive` ajoute la micro-interaction commune
+// (translateY -2px au survol, ~150ms) uniquement pour les cartes réellement
+// cliquables (point 6 : jamais sur une carte purement informative). Bordure
+// et ombre alignées sur les tokens du design system (border-gray-200,
+// shadow-form) plutôt que les valeurs génériques shadcn (border, shadow-sm).
 function Card({
   className,
   interactive = false,
@@ -14,7 +17,7 @@ function Card({
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border border-gray-200 py-6 shadow-form transition-all duration-150",
+        "flex flex-col gap-6 rounded-xl border border-gray-200 bg-card py-6 text-card-foreground shadow-form transition-all duration-150",
         interactive && "cursor-pointer hover:-translate-y-0.5 hover:shadow-chart",
         className
       )}
@@ -28,7 +31,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-header"
       className={cn(
-        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
+        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
         className
       )}
       {...props}
@@ -71,7 +74,11 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div data-slot="card-content" className={cn("px-6", className)} {...props} />
+    <div
+      data-slot="card-content"
+      className={cn("px-6", className)}
+      {...props}
+    />
   )
 }
 

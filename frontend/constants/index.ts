@@ -1,45 +1,67 @@
+import {
+  BadgeCheck,
+  History,
+  Home,
+  Send,
+  ShieldAlert,
+  ShieldCheck,
+  UserCog,
+  Wallet,
+} from "lucide-react";
+
+// Correctif shadcn/ui — icônes lucide-react (déjà la librairie standard du
+// projet, cf. components.json) au lieu des SVG /icons/*.svg d'origine.
+// `badgeKey` marque le lien qui doit porter un badge numérique fonctionnel
+// (nombre de dossiers AML en attente), résolu par Sidebar/MobileNav.
 export const sidebarLinks = [
   {
-    imgURL: "/icons/home.svg",
+    icon: Home,
     route: "/",
     label: "Accueil",
     adminOnly: false,
   },
   {
-    imgURL: "/icons/money-send.svg",
+    icon: Send,
     route: "/transfer",
     label: "Envoyer de l'argent",
     adminOnly: false,
   },
   {
-    imgURL: "/icons/money-send.svg",
+    icon: Wallet,
     route: "/payment-transfer",
     label: "Envoyer des fonds",
     adminOnly: false,
   },
   {
-    imgURL: "/icons/transaction.svg",
+    icon: History,
     route: "/transaction-history",
     label: "Historique",
     adminOnly: false,
   },
   {
-    imgURL: "/icons/credit-card.svg",
+    icon: BadgeCheck,
     route: "/kyc",
     label: "Vérification KYC",
     adminOnly: false,
   },
   {
-    imgURL: "/icons/edit.svg",
+    icon: ShieldCheck,
     route: "/security",
     label: "Sécurité",
     adminOnly: false,
   },
   {
-    imgURL: "/icons/monitor.svg",
+    icon: UserCog,
     route: "/admin/kyc",
     label: "Admin KYC",
     adminOnly: true,
+  },
+  {
+    icon: ShieldAlert,
+    route: "/admin/aml",
+    label: "Console AML",
+    adminOnly: true,
+    badgeKey: "amlPending" as const,
   },
 ];
 

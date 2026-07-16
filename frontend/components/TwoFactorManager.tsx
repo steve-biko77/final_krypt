@@ -2,6 +2,7 @@
 
 import { useTransition, useState } from 'react'
 import Image from 'next/image'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { AlertTriangle, Loader2, ShieldCheck, ShieldOff, Copy, CheckCircle } from 'lucide-react'
 import { setup2FA, verify2FA, disable2FA, type TwoFASetupData } from '@/lib/actions/twofa.actions'
@@ -28,6 +29,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
   const copySecret = (secret: string) => {
     navigator.clipboard.writeText(secret)
     setCopied(true)
+    toast.success('Code copié dans le presse-papiers')
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -51,6 +53,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
         setTotpCode('')
         setStep({ type: 'codes', codes: recovery_codes })
         setEnabled(true)
+        toast.success('2FA activée')
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Code invalide')
       }

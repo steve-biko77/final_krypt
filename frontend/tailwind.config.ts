@@ -1,4 +1,5 @@
     import type { Config } from "tailwindcss";
+    import tailwindcssAnimate from "tailwindcss-animate";
 
     const config: Config = {
         darkMode: ["class"],
@@ -125,14 +126,6 @@
                         "0%, 100%": { opacity: "1" },
                         "50%": { opacity: "0.35" },
                     },
-                    // Refonte frontend (partie 1/4) — léger "pop" du montant FCFA du
-                    // AmountConverter à chaque recalcul (~180ms, cf. motion-reduce sur
-                    // le composant).
-                    "amount-pop": {
-                        "0%": { transform: "scale(1)" },
-                        "40%": { transform: "scale(1.06)" },
-                        "100%": { transform: "scale(1)" },
-                    },
                     // Refonte frontend (partie 1/4) — pointillés défilants du segment
                     // parcouru de TransferRouteIndicator (mode actif uniquement).
                     "route-dash": {
@@ -143,12 +136,15 @@
                     "accordion-down": "accordion-down 0.2s ease-out",
                     "accordion-up": "accordion-up 0.2s ease-out",
                     "timeline-pulse": "timeline-pulse 1.6s ease-in-out infinite",
-                    "amount-pop": "amount-pop 180ms ease-out",
                     "route-dash": "route-dash 900ms linear infinite",
                 },
             },
         },
-        plugins: [], // ← Plus de tailwindcss-animate ici
+        // Correctif shadcn/ui (vraie intégration Radix) — Dialog/Sheet/DropdownMenu/
+        // Tooltip animent leur ouverture/fermeture via les classes data-[state=open]:
+        // animate-in / fade-in-0 / zoom-in-95 etc. générées par ce plugin. Sans lui,
+        // ces transitions ne produisaient AUCUNE animation (classes inexistantes).
+        plugins: [tailwindcssAnimate],
     };
 
     export default config;

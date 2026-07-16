@@ -4,9 +4,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import TransferTimeline from '@/components/TransferTimeline'
 import {
   cancelTransfer,
@@ -59,6 +69,7 @@ export default function TransferTrackingPage() {
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -92,10 +103,6 @@ export default function TransferTrackingPage() {
 
   const handleCancel = useCallback(async () => {
     if (!id) return
-    const confirmed = window.confirm(
-      'Annuler ce transfert ? Cette action est irréversible.',
-    )
-    if (!confirmed) return
 
     setCancelling(true)
     setCancelError(null)
@@ -105,8 +112,12 @@ export default function TransferTrackingPage() {
       // prochain cycle de polling (KRYP-28).
       setData((prev) => (prev ? { ...prev, status: result.status } : prev))
       stopPolling()
+      setConfirmOpen(false)
+      toast.success('Transfert annulé')
     } catch (e) {
-      setCancelError(e instanceof Error ? e.message : "Échec de l'annulation")
+      const message = e instanceof Error ? e.message : "Échec de l'annulation"
+      setCancelError(message)
+      toast.error("Échec de l'annulation", { description: message })
     } finally {
       setCancelling(false)
     }
@@ -114,9 +125,26 @@ export default function TransferTrackingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-14 text-gray-400 py-10 p-4 sm:p-8">
-        <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
-        Chargement du suivi…
+      <div className="w-full max-w-xl p-4 sm:p-8" aria-busy="true" aria-label="Chargement du suivi">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 mb-8 shadow-form">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+          <Skeleton className="h-4 w-48 mb-2" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+        <div className="flex flex-col gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex gap-4">
+              <Skeleton className="size-9 rounded-full shrink-0" />
+              <div className="flex-1 rounded-xl border border-gray-200 p-4">
+                <Skeleton className="h-4 w-32 mb-2" />
+                <Skeleton className="h-3 w-full max-w-64" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -178,7 +206,7 @@ export default function TransferTrackingPage() {
           <div className="mt-4">
             <Button
               type="button"
-              onClick={handleCancel}
+              onClick={() => setConfirmOpen(true)}
               disabled={cancelling}
               variant="outline"
               size="sm"
@@ -195,6 +223,36 @@ export default function TransferTrackingPage() {
 
       {/* Timeline */}
       <TransferTimeline steps={steps} />
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Annuler ce transfert ?</DialogTitle>
+            <DialogDescription>
+              Cette action est irréversible. Le transfert ne sera pas envoyé et vous ne pourrez
+              pas revenir en arrière.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={cancelling}
+            >
+              Retour
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {cancelling ? 'Annulation…' : 'Confirmer l’annulation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

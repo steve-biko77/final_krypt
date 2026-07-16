@@ -6,6 +6,8 @@ import { ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { convertEurToXafLocal, LOCAL_EUR_TO_XAF_RATE } from '@/lib/amountConverter'
 import AmountConversionDisplay from '@/components/AmountConversionDisplay'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface AmountConverterProps {
   className?: string
@@ -55,13 +57,28 @@ export default function AmountConverter({
       />
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
-        <p className="text-12 text-gray-500">
-          Taux 1 EUR ={' '}
-          <span className="font-mono tabular-nums">
-            {LOCAL_EUR_TO_XAF_RATE.toString().replace('.', ',')}
-          </span>{' '}
-          FCFA · Frais 1,5 %
-        </p>
+        <div className="flex items-center gap-1.5 text-12 text-gray-500">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="cursor-help">
+                Taux fixe
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-56">
+                Le FCFA (XAF) est arrimé à l&apos;euro à un taux fixe garanti — contrairement à
+                une devise flottante, il ne varie pas d&apos;un jour à l&apos;autre.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+          <p>
+            1 EUR ={' '}
+            <span className="font-mono tabular-nums">
+              {LOCAL_EUR_TO_XAF_RATE.toString().replace('.', ',')}
+            </span>{' '}
+            FCFA · Frais 1,5 %
+          </p>
+        </div>
 
         {ctaHref ? (
           <Link

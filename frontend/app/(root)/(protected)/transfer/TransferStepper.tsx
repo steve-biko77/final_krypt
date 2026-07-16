@@ -9,6 +9,8 @@ import {
   useElements,
   useStripe,
 } from '@stripe/react-stripe-js'
+import { toast } from 'sonner'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import AmountConversionDisplay from '@/components/AmountConversionDisplay'
 import {
@@ -41,6 +43,14 @@ const COUNTRIES = [
 
 export default function TransferStepper() {
   const [step, setStep] = useState<Step>('recipient')
+  const prefersReducedMotion = useReducedMotion()
+  // Correctif Framer Motion (3/3) — léger glissement horizontal + fondu entre
+  // les 3 étapes, cohérent avec la métaphore du "parcours" (TransferRouteIndicator).
+  const stepVariants = {
+    initial: prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 16 },
+    animate: { opacity: 1, x: 0 },
+    exit: prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: -16 },
+  }
   const [recipient, setRecipient] = useState<RecipientData>({
     name: '',
     country: 'CM',
@@ -82,10 +92,16 @@ export default function TransferStepper() {
           setClientSecret(result.client_secret)
           setTransactionId(result.transaction_id)
           setStep('payment')
+          toast.success('Transfert initié', {
+            description: 'Il ne reste plus qu’à confirmer le paiement.',
+          })
         } else if (result.status === 'AML_PENDING_REVIEW') {
           setTransactionId(result.transaction_id)
           setPendingReview(true)
           setStep('payment')
+          toast.success('Transfert initié', {
+            description: 'Il est en cours de vérification par nos équipes.',
+          })
         }
       } catch (e) {
         setInitError(
@@ -165,10 +181,22 @@ export default function TransferStepper() {
         {STEP_LABELS[step]}
       </p>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-form">
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-6 shadow-form overflow-hidden">
+      {/* mode par défaut ("sync", pas "wait") : la nouvelle étape apparaît
+          immédiatement dans le DOM au lieu d'attendre la fin de la sortie de
+          la précédente — évite tout délai perceptible au clic. */}
+      <AnimatePresence>
       {/* ── STEP 1 : Destinataire ── */}
       {step === 'recipient' && (
-        <div className="flex flex-col gap-5">
+        <motion.div
+          key="recipient"
+          variants={stepVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={{ duration: 0.2 }}
+          className="flex flex-col gap-5"
+        >
           <div>
             <label className="block text-14 font-medium text-gray-700 mb-1">
               Nom complet du bénéficiaire
@@ -264,12 +292,20 @@ export default function TransferStepper() {
           >
             Suivant <ArrowRight size={16} />
           </Button>
-        </div>
+        </motion.div>
       )}
 
       {/* ── STEP 2 : Montant + Simulation ── */}
       {step === 'amount' && (
-        <div className="flex flex-col gap-5">
+        <motion.div
+          key="amount"
+          variants={stepVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={{ duration: 0.2 }}
+          className="flex flex-col gap-5"
+        >
           {/* Récapitulatif destinataire */}
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
             <p className="text-12 text-gray-500 mb-1">Destinataire</p>
@@ -355,12 +391,20 @@ export default function TransferStepper() {
               {initiating ? 'Vérification en cours…' : 'Confirmer le transfert'}
             </Button>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* ── STEP 3 : Paiement / Conformité ── */}
       {step === 'payment' && (
-        <div className="flex flex-col gap-5">
+        <motion.div
+          key="payment"
+          variants={stepVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={{ duration: 0.2 }}
+          className="flex flex-col gap-5"
+        >
           {pendingReview ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 flex items-start gap-3">
               <Clock size={20} className="text-amber-600 mt-0.5 shrink-0" />
@@ -384,8 +428,9 @@ export default function TransferStepper() {
               <PaymentForm clientSecret={clientSecret} />
             </Elements>
           ) : null}
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
       </div>
     </div>
   )
@@ -410,7 +455,9 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
       { payment_method: { card } },
     )
     if (error) {
-      setPayError(error.message ?? 'Le paiement a échoué.')
+      const message = error.message ?? 'Le paiement a échoué.'
+      setPayError(message)
+      toast.error('Paiement refusé', { description: message })
       setProcessing(false)
       return
     }

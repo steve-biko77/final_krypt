@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, renderWithProviders as render, screen, waitFor } from '@/lib/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach } from 'vitest'
 import AmountConverter from './AmountConverter'
@@ -34,11 +34,16 @@ describe('AmountConverter', () => {
     await user.clear(input)
     await user.type(input, '200')
 
+    // Le résultat compte progressivement vers la nouvelle valeur (correctif
+    // Framer Motion) plutôt que de sauter instantanément — on attend la valeur
+    // finale plutôt que de vérifier une frappe intermédiaire de l'animation.
     const expected = normalizeSpaces(formatXaf(convertEurToXafLocal(200).amountXaf))
-    const actual = normalizeSpaces(
-      screen.getByTestId('amount-conversion-result').textContent ?? ''
-    )
-    expect(actual).toBe(expected)
+    await waitFor(() => {
+      const actual = normalizeSpaces(
+        screen.getByTestId('amount-conversion-result').textContent ?? ''
+      )
+      expect(actual).toBe(expected)
+    })
   })
 
   it('déclenche onSend avec le montant courant au clic sur le CTA', async () => {

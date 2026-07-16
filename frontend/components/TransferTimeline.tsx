@@ -1,5 +1,6 @@
 import { CheckCircle, Circle, XCircle, ExternalLink } from 'lucide-react'
 
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { TimelineStep } from '@/lib/transferTimeline'
 
 const POLYGONSCAN_TX = 'https://amoy.polygonscan.com/tx'
@@ -139,34 +140,45 @@ export default function TransferTimeline({ steps }: { steps: TimelineStep[] }) {
                   {/* Preuve on-chain volontairement mise en évidence (pas noyée
                       dans le reste, KRYP-27 ajout ultérieur) : pastille cliquable
                       distincte plutôt qu'un simple lien texte. */}
-                  <a
-                    href={`${POLYGONSCAN_TX}/${step.txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-25 px-2.5 py-1.5 text-12 font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
-                  >
-                    {step.batchId != null ? (
-                      // Preuve d'inclusion dans un lot Merkle AuditTrail (KRYP-27) —
-                      // volontairement distincte d'un lien de transaction dédiée :
-                      // ce hash prouve l'ancrage du lot, pas une transaction propre
-                      // à ce transfert.
-                      <>
-                        <span>Inclus dans le lot Polygon #{step.batchId}</span>
-                        <ExternalLink size={12} aria-hidden="true" />
-                        <span className="sr-only">
-                          Voir la preuve d&apos;inclusion du lot sur Polygonscan
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-mono tabular-nums">
-                          {step.txHash.slice(0, 10)}…{step.txHash.slice(-8)}
-                        </span>
-                        <ExternalLink size={12} aria-hidden="true" />
-                        <span className="sr-only">Voir la transaction sur Polygonscan</span>
-                      </>
-                    )}
-                  </a>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={`${POLYGONSCAN_TX}/${step.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-25 px-2.5 py-1.5 text-12 font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                      >
+                        {step.batchId != null ? (
+                          // Preuve d'inclusion dans un lot Merkle AuditTrail (KRYP-27) —
+                          // volontairement distincte d'un lien de transaction dédiée :
+                          // ce hash prouve l'ancrage du lot, pas une transaction propre
+                          // à ce transfert.
+                          <>
+                            <span>Inclus dans le lot Polygon #{step.batchId}</span>
+                            <ExternalLink size={12} aria-hidden="true" />
+                            <span className="sr-only">
+                              Voir la preuve d&apos;inclusion du lot sur Polygonscan
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-mono tabular-nums">
+                              {step.txHash.slice(0, 10)}…{step.txHash.slice(-8)}
+                            </span>
+                            <ExternalLink size={12} aria-hidden="true" />
+                            <span className="sr-only">Voir la transaction sur Polygonscan</span>
+                          </>
+                        )}
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-56">
+                        Polygonscan est un explorateur public de la blockchain Polygon : cette
+                        preuve y est vérifiable par n&apos;importe qui, de façon permanente et
+                        infalsifiable.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               )}
             </div>
