@@ -2,12 +2,22 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, AlertCircle, XCircle, X } from 'lucide-react'
+import { CheckCircle, AlertCircle, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   decideAMLEscalatedReview,
   getAdminAMLEscalatedDetail,
   type AdminAMLDetail,
 } from '@/lib/actions/admin-aml.actions'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface AMLEscalatedDecisionPanelProps {
   transferId: string
@@ -44,29 +54,30 @@ export default function AMLEscalatedDecisionPanel({
       try {
         await decideAMLEscalatedReview(transferId, action, motif)
         router.refresh()
+        toast.success('Décision finale enregistrée')
         onDecided()
         onClose()
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Une erreur est survenue.')
+        const message = e instanceof Error ? e.message : 'Une erreur est survenue.'
+        setError(message)
+        toast.error('Échec de la décision', { description: message })
       }
     })
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6 relative max-h-[90vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-          aria-label="Fermer"
-        >
-          <X size={20} />
-        </button>
-
-        <h2 className="text-18 font-bold text-gray-900 mb-4">Revue escaladée — décision finale</h2>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Revue escaladée — décision finale</DialogTitle>
+        </DialogHeader>
 
         {!detail ? (
-          <p className="text-14 text-gray-400 py-8 text-center">Chargement…</p>
+          <div className="space-y-3 py-2" aria-busy="true" aria-label="Chargement">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-16 w-full rounded-lg" />
+          </div>
         ) : (
           <>
             {detail.escalation_comment && (
@@ -101,9 +112,7 @@ export default function AMLEscalatedDecisionPanel({
                       {detail.aml.tag_ml_score_label}
                     </span>
                   </span>
-                  <span className="font-medium text-gray-900">
-                    {Math.round(detail.aml.tag_ml_score * 100)}%
-                  </span>
+                  <Badge variant="secondary">{Math.round(detail.aml.tag_ml_score * 100)}%</Badge>
                 </div>
               )}
             </div>
@@ -132,26 +141,29 @@ export default function AMLEscalatedDecisionPanel({
             )}
 
             <div className="flex gap-2">
-              <button
+              <Button
+                type="button"
                 onClick={() => handleDecision('approve')}
                 disabled={isPending}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-600 text-white text-14 font-semibold hover:bg-green-700 disabled:opacity-50 transition"
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
               >
                 <CheckCircle size={16} />
                 Approuver
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
                 onClick={() => handleDecision('reject')}
                 disabled={isPending}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 text-white text-14 font-semibold hover:bg-red-700 disabled:opacity-50 transition"
+                variant="destructive"
+                className="flex-1"
               >
                 <XCircle size={16} />
                 Rejeter
-              </button>
+              </Button>
             </div>
           </>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

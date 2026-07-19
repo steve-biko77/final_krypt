@@ -4,10 +4,26 @@ import Link from 'next/link'
 import { useState } from 'react'
 import type { AdminAMLPendingItem } from '@/lib/actions/admin-aml.actions'
 import AMLEscalatedDecisionPanel from '@/components/AMLEscalatedDecisionPanel'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 interface AdminAMLEscalatedClientProps {
   initialData: AdminAMLPendingItem[]
   initialCount: number
+}
+
+function scoreBadgeVariant(score: number): 'destructive' | 'warning' | 'secondary' {
+  if (score >= 0.7) return 'destructive'
+  if (score >= 0.4) return 'warning'
+  return 'secondary'
 }
 
 export default function AdminAMLEscalatedClient({
@@ -37,42 +53,50 @@ export default function AdminAMLEscalatedClient({
         </Link>
       </div>
 
-      {items.length === 0 ? (
-        <div className="flex items-center justify-center py-16 text-gray-400 text-14">
-          Aucun dossier escaladé.
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200">
-          <table className="w-full text-left text-14">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 font-semibold text-gray-600">Référence</th>
-                <th className="px-4 py-3 font-semibold text-gray-600">Score (priorité)</th>
-                <th className="px-4 py-3 font-semibold text-gray-600">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr
-                  key={item.transfer_id}
-                  onClick={() => setSelected(item)}
-                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                >
-                  <td className="px-4 py-3 font-mono text-12 text-gray-700">
-                    {item.transfer_id}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {Math.round(item.tag_ml_score * 100)}%
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {item.created_at ? new Date(item.created_at).toLocaleDateString('fr-FR') : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <Card>
+        <CardHeader className="sr-only">
+          <CardTitle>Dossiers escaladés</CardTitle>
+          <CardDescription>Transferts en attente de revue de second niveau</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
+          {items.length === 0 ? (
+            <div className="flex items-center justify-center py-16 text-gray-400 text-14">
+              Aucun dossier escaladé.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="px-6">Référence</TableHead>
+                  <TableHead>Score (priorité)</TableHead>
+                  <TableHead className="px-6">Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow
+                    key={item.transfer_id}
+                    onClick={() => setSelected(item)}
+                    className="cursor-pointer"
+                  >
+                    <TableCell className="px-6 font-mono text-12 text-gray-700">
+                      {item.transfer_id}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={scoreBadgeVariant(item.tag_ml_score)}>
+                        {Math.round(item.tag_ml_score * 100)}%
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="px-6 text-gray-500">
+                      {item.created_at ? new Date(item.created_at).toLocaleDateString('fr-FR') : '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {selected && (
         <AMLEscalatedDecisionPanel
