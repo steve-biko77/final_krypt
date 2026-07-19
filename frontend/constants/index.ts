@@ -6,7 +6,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   UserCog,
-  Wallet,
 } from "lucide-react";
 
 // Correctif shadcn/ui — icônes lucide-react (déjà la librairie standard du
@@ -24,12 +23,6 @@ export const sidebarLinks = [
     icon: Send,
     route: "/transfer",
     label: "Envoyer de l'argent",
-    adminOnly: false,
-  },
-  {
-    icon: Wallet,
-    route: "/payment-transfer",
-    label: "Envoyer des fonds",
     adminOnly: false,
   },
   {

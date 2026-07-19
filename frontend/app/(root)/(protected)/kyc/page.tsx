@@ -121,21 +121,6 @@ const KYCPage = async () => {
           </div>
         </div>
       )}
-
-      {!status && !config && (
-        <div className="flex flex-col gap-4">
-          <div className="border-t border-gray-100 pt-6">
-            <h2 className="text-18 font-semibold text-gray-900 mb-1">
-              Soumettre votre document d&apos;identité
-            </h2>
-            <p className="text-14 text-gray-500 mb-6">
-              Documents acceptés : carte nationale d&apos;identité, passeport, titre de séjour.
-              Le document doit être lisible et en cours de validité.
-            </p>
-            <KYCUploadForm />
-          </div>
-        </div>
-      )}
     </section>
   )
 }
