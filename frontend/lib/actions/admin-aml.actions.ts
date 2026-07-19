@@ -298,3 +298,22 @@ export const archiveAdminAMLDailyReport = async (
   const qs = date ? `?date=${encodeURIComponent(date)}` : '';
   return authedFetch(`/api/admin/aml/daily-report/archive${qs}`, { method: 'POST' });
 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tableau de bord admin — vue d'ensemble plateforme (GET /api/admin/stats).
+// N'agrège que des compteurs déjà exposés ailleurs (file pending/escalated,
+// cas HARD_BLOCK, décisions du jour) : aucune nouvelle logique côté backend.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface AdminStats {
+  total_users: number;
+  total_kyc_verified: number;
+  transactions_by_status: Record<string, number>;
+  total_volume_eur: string;
+  pending_review_count: number;
+  escalated_count: number;
+  hard_block_count: number;
+  today_decisions: AdminAMLDailyReport;
+}
+
+export const getAdminStats = async (): Promise<AdminStats> => authedFetch('/api/admin/stats');

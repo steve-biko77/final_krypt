@@ -61,7 +61,14 @@ const Sidebar = ({ user, pendingAmlCount }: SiderbarProps) => {
               Administration
             </p>
             {adminLinks.map((item) => {
-              const isActive = pathname === item.route || pathname.startsWith(`${item.route}/`)
+              // "/admin" (Vue d'ensemble) ne doit s'illuminer que sur sa
+              // propre page — un startsWith générique la ferait aussi
+              // matcher /admin/kyc et /admin/aml, allumant deux liens à la
+              // fois.
+              const isActive =
+                item.route === '/admin'
+                  ? pathname === '/admin'
+                  : pathname === item.route || pathname.startsWith(`${item.route}/`)
               const Icon = item.icon
               const badgeCount = item.badgeKey === 'amlPending' ? pendingAmlCount : undefined
               return (

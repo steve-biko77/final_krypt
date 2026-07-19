@@ -12,6 +12,12 @@ import { getLoggedInUser } from '@/lib/actions/user.actions'
 // client par RecentTransfersList (son propre useEffect), pas ici : ça donne
 // un état de chargement réellement visible (un rendu SSR déjà résolu n'en
 // montre jamais un) et reste testable simplement (mock de l'action).
+//
+// Tableau de bord admin — la redirection is_staff -> /admin est faite une
+// seule fois, juste après la connexion (AuthForm.tsx), PAS ici : "/" reste
+// le dashboard personnel pour un admin qui y revient volontairement via le
+// lien "Accueil" de la sidebar (KRYP — tableau de bord admin). La brancher
+// ici créerait une boucle de redirection sur ce lien.
 const Home = async () => {
   const loggedIn = await getLoggedInUser()
 

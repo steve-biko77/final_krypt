@@ -14,6 +14,16 @@ import { completeTwoFactorSignIn, signIn, signUp } from '@/lib/actions/user.acti
 import { authFormSchema } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 
+// Tableau de bord admin — redirection automatique UNIQUEMENT juste après une
+// connexion réussie (pas à chaque chargement de "/", cf. app/(root)/page.tsx)
+// : ainsi le lien "Accueil" de la sidebar (route "/") continue de ramener un
+// admin vers son dashboard personnel sans jamais rebondir vers /admin. La
+// 2FA est requise en plus de is_staff — sinon /admin (IsStaffWith2FA côté
+// backend) renverrait aussitôt l'admin vers "/", pour une boucle inutile.
+function postLoginRedirectPath(user: { is_staff: boolean; is_2fa_enabled: boolean }): string {
+  return user.is_staff && user.is_2fa_enabled ? '/admin' : '/'
+}
+
 // Refonte frontend (partie 2/4) — boîte d'erreur commune, calme et lisible
 // (pas de rouge criard ni de ton anxiogène) : icône + texte, jamais juste du
 // texte rouge brut.
@@ -71,7 +81,7 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
           setPreAuthToken(result.pre_auth_token)
           setTwoFaStep(true)
         } else {
-          router.push('/')
+          router.push(postLoginRedirectPath(result.user))
         }
       }
     } catch (err: unknown) {
@@ -88,8 +98,8 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
     setError(null)
 
     try {
-      await completeTwoFactorSignIn({ pre_auth_token: preAuthToken, totp_code: totpCode })
-      router.push('/')
+      const user = await completeTwoFactorSignIn({ pre_auth_token: preAuthToken, totp_code: totpCode })
+      router.push(postLoginRedirectPath(user))
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Code invalide')
     } finally {

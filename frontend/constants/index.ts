@@ -2,6 +2,7 @@ import {
   BadgeCheck,
   History,
   Home,
+  LayoutDashboard,
   Send,
   ShieldAlert,
   ShieldCheck,
@@ -42,6 +43,12 @@ export const sidebarLinks = [
     route: "/security",
     label: "Sécurité",
     adminOnly: false,
+  },
+  {
+    icon: LayoutDashboard,
+    route: "/admin",
+    label: "Vue d'ensemble",
+    adminOnly: true,
   },
   {
     icon: UserCog,

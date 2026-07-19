@@ -72,7 +72,12 @@ const MobileNav = ({ user, pendingAmlCount }: MobileNavProps) => {
                   Administration
                 </p>
                 {adminLinks.map((item) => {
-                  const isActive = pathname === item.route || pathname.startsWith(`${item.route}/`)
+                  // Cf. Sidebar.tsx — "/admin" ne doit s'allumer que sur sa
+                  // propre page, pas sur /admin/kyc ou /admin/aml.
+                  const isActive =
+                    item.route === '/admin'
+                      ? pathname === '/admin'
+                      : pathname === item.route || pathname.startsWith(`${item.route}/`)
                   const Icon = item.icon
                   const badgeCount = item.badgeKey === 'amlPending' ? pendingAmlCount : undefined
                   return (
