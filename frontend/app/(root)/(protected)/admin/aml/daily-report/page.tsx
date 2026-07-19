@@ -13,7 +13,7 @@ export default async function AdminAMLDailyReportPage() {
   const report = await getAdminAMLDailyReport()
 
   return (
-    <div className="flex flex-col gap-8 p-8 max-w-4xl">
+    <div className="flex flex-col gap-8 p-4 sm:p-8 max-w-4xl">
       <AdminAMLDailyReportClient initialReport={report} />
     </div>
   )
