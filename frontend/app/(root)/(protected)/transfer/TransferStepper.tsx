@@ -1,6 +1,7 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react'
 import { loadStripe } from '@stripe/stripe-js'
 import {
@@ -425,7 +426,7 @@ export default function TransferStepper() {
             </div>
           ) : clientSecret ? (
             <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <PaymentForm clientSecret={clientSecret} />
+              <PaymentForm clientSecret={clientSecret} transactionId={transactionId} />
             </Elements>
           ) : null}
         </motion.div>
@@ -436,12 +437,47 @@ export default function TransferStepper() {
   )
 }
 
-function PaymentForm({ clientSecret }: { clientSecret: string }) {
+// Redirection auto vers le suivi après confirmation du paiement — délai
+// court (le webhook Stripe et le début du traitement backend sont déjà
+// quasi immédiats) affiché de façon transparente, jamais silencieux.
+const REDIRECT_DELAY_SECONDS = 3
+
+function PaymentForm({
+  clientSecret,
+  transactionId,
+}: {
+  clientSecret: string
+  transactionId: string | null
+}) {
+  const router = useRouter()
   const stripe = useStripe()
   const elements = useElements()
   const [processing, setProcessing] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
   const [succeeded, setSucceeded] = useState(false)
+  const [secondsLeft, setSecondsLeft] = useState(REDIRECT_DELAY_SECONDS)
+
+  const goToTracking = () => {
+    if (transactionId) router.push(`/transfer/${transactionId}`)
+  }
+
+  // Un seul setInterval (pas un setTimeout qui se reprogramme à chaque tick
+  // depuis l'effet) : la redirection déclenche directement dans le callback
+  // du timer, sans dépendre d'un nouveau cycle rendu/effet entre deux ticks.
+  useEffect(() => {
+    if (!succeeded || !transactionId) return
+    const interval = setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          clearInterval(interval)
+          router.push(`/transfer/${transactionId}`)
+          return 0
+        }
+        return s - 1
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [succeeded, transactionId, router])
 
   const handlePay = async () => {
     if (!stripe || !elements) return
@@ -479,6 +515,20 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
             Votre transfert est en cours d&apos;acheminement vers le
             bénéficiaire.
           </p>
+          {transactionId && (
+            <div className="flex items-center gap-3 mt-3">
+              <p className="text-12 text-green-600">
+                Redirection vers le suivi dans {secondsLeft}s…
+              </p>
+              <button
+                type="button"
+                onClick={goToTracking}
+                className="text-12 font-semibold text-blue-600 underline underline-offset-2"
+              >
+                Voir le suivi maintenant
+              </button>
+            </div>
+          )}
         </div>
       </div>
     )
