@@ -37,3 +37,5 @@ backend/.env
 .env
 
 backend/celerybeat-schedule*
+
+utilisateur.txt
