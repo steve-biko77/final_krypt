@@ -81,7 +81,7 @@ const KYCPage = async () => {
   const canUpload = !status || (config?.canUpload ?? false)
 
   return (
-    <section className="flex flex-col gap-8 p-8 max-w-2xl">
+    <section className="flex flex-col gap-8 p-4 sm:p-8 max-w-2xl">
       <HeaderBox
         title="Vérification d&apos;identité (KYC)"
         subtext="Soumettez un document officiel pour activer vos transferts"

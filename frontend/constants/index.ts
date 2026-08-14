@@ -24,6 +24,10 @@ export const sidebarLinks = [
     icon: Send,
     route: "/transfer",
     label: "Envoyer de l'argent",
+    // Optimisation mobile-first — libellé compact pour la barre de navigation
+    // basse (BottomNav), où "Envoyer de l'argent" déborderait sous l'icône.
+    // Sidebar/MobileNav continuent d'utiliser `label` en entier, inchangé.
+    shortLabel: "Envoyer",
     adminOnly: false,
   },
   {

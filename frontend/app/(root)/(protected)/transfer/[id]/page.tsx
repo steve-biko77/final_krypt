@@ -159,7 +159,7 @@ export default function TransferTrackingPage() {
             <p className="text-13 text-red-700 mt-1">{error}</p>
             <Link
               href="/transfer"
-              className="inline-flex items-center gap-1 mt-3 text-13 font-medium text-blue-600 hover:underline"
+              className="inline-flex items-center gap-1 mt-3 text-13 font-medium text-blue-600 hover:underline max-md:min-h-11"
             >
               <ArrowLeft size={14} /> Retour aux transferts
             </Link>
@@ -189,7 +189,7 @@ export default function TransferTrackingPage() {
       {/* En-tête récapitulatif — montant en police mono (point 3, partie 3/4) */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 mb-8 shadow-form">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-18 tabular-nums font-bold text-gray-900">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-24 md:text-18 tabular-nums font-bold text-gray-900">
             <span>{formatEUR(data.amount_eur)} €</span>
             <ArrowRight size={16} className="text-gray-400" aria-hidden="true" />
             <span>{formatXAF(data.amount_xaf)} FCFA</span>
@@ -210,7 +210,7 @@ export default function TransferTrackingPage() {
               disabled={cancelling}
               variant="outline"
               size="sm"
-              className="text-red-600 border-red-200 hover:bg-red-50"
+              className="text-red-600 border-red-200 hover:bg-red-50 max-md:h-11 max-md:px-4"
             >
               {cancelling ? 'Annulation…' : 'Annuler le transfert'}
             </Button>
@@ -239,6 +239,7 @@ export default function TransferTrackingPage() {
               variant="outline"
               onClick={() => setConfirmOpen(false)}
               disabled={cancelling}
+              className="max-md:h-11"
             >
               Retour
             </Button>
@@ -246,7 +247,7 @@ export default function TransferTrackingPage() {
               type="button"
               onClick={handleCancel}
               disabled={cancelling}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-red-600 hover:bg-red-700 text-white max-md:h-11"
             >
               {cancelling ? 'Annulation…' : 'Confirmer l’annulation'}
             </Button>

@@ -83,7 +83,7 @@ export default function AmountConverter({
         {ctaHref ? (
           <Link
             href={ctaHref}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-13 font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-13 font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 max-md:min-h-11 max-sm:w-full"
           >
             {ctaLabel}
             <ArrowRight size={14} />
@@ -92,7 +92,7 @@ export default function AmountConverter({
           <button
             type="button"
             onClick={() => onSend?.(amountEur)}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-13 font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-13 font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 max-md:min-h-11 max-sm:w-full"
           >
             {ctaLabel}
             <ArrowRight size={14} />

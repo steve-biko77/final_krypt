@@ -48,14 +48,20 @@ export default function UserMenu({ user }: UserMenuProps) {
         <ChevronDown size={16} className="shrink-0 text-gray-400 max-xl:hidden" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="w-56">
-        <DropdownMenuItem asChild>
+        {/* max-md: cible tactile 44px sur mobile (Sheet MobileNav) ; ce menu
+            est partagé avec la Sidebar desktop (souris), donc inchangé à
+            partir de md. */}
+        <DropdownMenuItem asChild className="max-md:min-h-11">
           <Link href="/security" className="cursor-pointer">
             <ShieldCheck size={16} aria-hidden="true" />
             Sécurité
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-600">
+        <DropdownMenuItem
+          onClick={handleLogout}
+          className="cursor-pointer text-red-600 focus:text-red-600 max-md:min-h-11"
+        >
           <LogOut size={16} aria-hidden="true" />
           Se déconnecter
         </DropdownMenuItem>

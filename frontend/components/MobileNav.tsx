@@ -27,15 +27,21 @@ const MobileNav = ({ user, pendingAmlCount }: MobileNavProps) => {
   const mainLinks = visibleLinks.filter((item) => !item.adminOnly)
   const adminLinks = visibleLinks.filter((item) => item.adminOnly)
 
+  // Correctif shadcn/ui — cible tactile mobile (min. 44px) : py-3 (contre
+  // py-2.5 côté Sidebar desktop, non touchée) + gap-2 entre liens empilés
+  // (au lieu de gap-1) pour un espacement suffisant au pouce. MobileNav ne
+  // s'affiche jamais au-delà de md (cf. .root-layout, md:hidden), donc ces
+  // valeurs n'ont pas besoin d'être conditionnées par un breakpoint : ce
+  // composant EST déjà exclusivement mobile.
   const linkClassName = (isActive: boolean) =>
     cn(
-      'flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors',
+      'flex items-center gap-3 rounded-lg px-3 py-3 min-h-11 transition-colors',
       isActive ? 'bg-blue-25 text-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
     )
 
   return (
     <Sheet>
-      <SheetTrigger className="flex items-center justify-center rounded-lg p-2 text-gray-600 hover:bg-gray-50">
+      <SheetTrigger className="flex items-center justify-center rounded-lg p-2.5 min-h-11 min-w-11 text-gray-600 hover:bg-gray-50">
         <Menu size={24} aria-hidden="true" />
         <span className="sr-only">Ouvrir le menu</span>
       </SheetTrigger>
@@ -47,7 +53,7 @@ const MobileNav = ({ user, pendingAmlCount }: MobileNavProps) => {
 
         <div className="flex flex-1 flex-col justify-between overflow-y-auto">
           <div className="flex flex-col gap-6">
-            <nav className="flex flex-col gap-1">
+            <nav className="flex flex-col gap-2">
               {mainLinks.map((item) => {
                 const isActive = pathname === item.route || pathname.startsWith(`${item.route}/`)
                 const Icon = item.icon
@@ -67,7 +73,7 @@ const MobileNav = ({ user, pendingAmlCount }: MobileNavProps) => {
             </nav>
 
             {adminLinks.length > 0 && (
-              <div className="flex flex-col gap-1 border-t border-gray-100 pt-4">
+              <div className="flex flex-col gap-2 border-t border-gray-100 pt-4">
                 <p className="px-3 pb-1 text-10 font-semibold uppercase tracking-wide text-gray-400">
                   Administration
                 </p>

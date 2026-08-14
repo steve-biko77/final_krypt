@@ -59,7 +59,7 @@ export default function JourneyCard({
   const content = (
     <div
       className={cn(
-        'flex flex-col gap-2 rounded-xl border border-gray-200 bg-white p-3 sm:p-4 transition-all duration-150',
+        'flex flex-col gap-2 rounded-xl border border-gray-200 bg-white p-4 transition-all duration-150',
         href && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-chart',
         className
       )}

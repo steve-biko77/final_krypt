@@ -14,7 +14,17 @@ interface CustomInput {
   placeholder: string
 }
 
+// Optimisation mobile-first — type/inputMode corrects par champ pour que le
+// clavier natif adapté s'affiche directement (email, numérique téléphone).
+const FIELD_INPUT_PROPS: Partial<Record<string, { type: string; inputMode?: 'email' | 'tel' }>> = {
+  email: { type: 'email', inputMode: 'email' },
+  phone: { type: 'tel', inputMode: 'tel' },
+  password: { type: 'password' },
+}
+
 const CustomInput = ({ control, name, label, placeholder }: CustomInput) => {
+  const { type, inputMode } = FIELD_INPUT_PROPS[name] ?? { type: 'text' }
+
   return (
     <FormField
       control={control}
@@ -32,7 +42,8 @@ const CustomInput = ({ control, name, label, placeholder }: CustomInput) => {
                 // frontend partie 2/4, point 5) — input-class ne fixe pas de
                 // hauteur, on l'ajoute explicitement ici.
                 className="input-class h-11"
-                type={name === 'password' ? 'password' : 'text'}
+                type={type}
+                inputMode={inputMode}
                 {...field}
               />
             </FormControl>

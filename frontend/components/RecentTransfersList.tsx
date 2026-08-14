@@ -64,7 +64,7 @@ export default function RecentTransfersList() {
         </p>
         <Link
           href="/transfer"
-          className="inline-flex items-center gap-1 mt-2 text-13 font-semibold text-blue-600 hover:underline"
+          className="inline-flex items-center gap-1 mt-2 text-13 font-semibold text-blue-600 hover:underline max-md:min-h-11"
         >
           Envoyer votre premier transfert <ArrowRight size={14} />
         </Link>
@@ -73,7 +73,7 @@ export default function RecentTransfersList() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4 md:gap-3">
       {transfers.map((t, i) => {
         const terminal = isTerminalStatus(t.status)
         return (

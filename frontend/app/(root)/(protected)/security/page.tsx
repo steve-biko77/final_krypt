@@ -10,7 +10,7 @@ const SecurityPage = async () => {
         <h1 className="font-heading tracking-heading text-24 sm:text-30 font-bold text-gray-900">
           Sécurité du compte
         </h1>
-        <p className="text-14 text-gray-500 mt-1">
+        <p className="text-16 md:text-14 text-gray-500 mt-1">
           Gérez l&apos;authentification à deux facteurs (2FA)
         </p>
       </div>

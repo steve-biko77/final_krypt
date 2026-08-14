@@ -146,7 +146,7 @@ export default function TransferTimeline({ steps }: { steps: TimelineStep[] }) {
                         href={`${POLYGONSCAN_TX}/${step.txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-25 px-2.5 py-1.5 text-12 font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-25 px-2.5 py-1.5 text-12 font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 max-md:min-h-11 max-md:px-3"
                       >
                         {step.batchId != null ? (
                           // Preuve d'inclusion dans un lot Merkle AuditTrail (KRYP-27) —

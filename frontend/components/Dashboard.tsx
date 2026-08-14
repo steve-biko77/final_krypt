@@ -30,7 +30,7 @@ export default function Dashboard({
         <h1 className="font-heading tracking-heading text-24 sm:text-30 font-bold text-gray-900">
           Bienvenue, <span className="text-blue-600">{firstName}</span>
         </h1>
-        <p className="text-14 text-gray-500 mt-1">
+        <p className="text-16 md:text-14 text-gray-500 mt-1">
           Gérez vos transferts France → Cameroun via Mobile Money
         </p>
       </div>
@@ -46,7 +46,7 @@ export default function Dashboard({
           </h2>
           <Link
             href="/transaction-history"
-            className="text-13 font-medium text-blue-600 hover:underline whitespace-nowrap"
+            className="text-13 font-medium text-blue-600 hover:underline whitespace-nowrap max-md:inline-flex max-md:min-h-11 max-md:items-center"
           >
             Historique complet →
           </Link>
@@ -57,7 +57,10 @@ export default function Dashboard({
 
       <div className="flex items-center gap-2">
         <ShieldCheck size={16} className="text-gray-400" aria-hidden="true" />
-        <Link href="/security" className="text-13 font-medium text-gray-600 hover:text-blue-600 hover:underline">
+        <Link
+          href="/security"
+          className="text-13 font-medium text-gray-600 hover:text-blue-600 hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center"
+        >
           Sécurité du compte (2FA) →
         </Link>
       </div>

@@ -1,3 +1,4 @@
+import BottomNav from '@/components/BottomNav'
 import MobileNav from '@/components/MobileNav'
 import Sidebar from '@/components/Sidebar'
 import { getLoggedInUser } from '@/lib/actions/user.actions'
@@ -44,8 +45,14 @@ export default async function RootLayout({
             <MobileNav user={loggedIn} pendingAmlCount={pendingAmlCount} />
           </div>
         </div>
-        {children}
+        {/* Optimisation mobile-first — espace réservé pour que la BottomNav
+            fixe (voir plus bas) ne masque jamais le bas du contenu ; nul à
+            partir de md, où la BottomNav ne s'affiche plus (md:hidden). */}
+        <div className='pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0'>
+          {children}
+        </div>
       </div>
+      <BottomNav />
     </main>
   )
 }

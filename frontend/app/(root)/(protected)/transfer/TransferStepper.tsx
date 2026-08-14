@@ -209,7 +209,7 @@ export default function TransferStepper() {
                 setRecipient((r) => ({ ...r, name: e.target.value }))
               }
               placeholder="Jean-Pierre Mbarga"
-              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-16 md:text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -222,7 +222,7 @@ export default function TransferStepper() {
               onChange={(e) =>
                 setRecipient((r) => ({ ...r, country: e.target.value }))
               }
-              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-14 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-16 md:text-14 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {COUNTRIES.map((c) => (
                 <option key={c.code} value={c.code}>
@@ -243,7 +243,7 @@ export default function TransferStepper() {
                 setRecipient((r) => ({ ...r, mobileNumber: e.target.value }))
               }
               placeholder="+237 6XX XXX XXX"
-              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-11 border border-gray-300 rounded-lg px-3 text-16 md:text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -289,7 +289,7 @@ export default function TransferStepper() {
             disabled={!recipientValid}
             variant="brand"
             size="lg"
-            className="w-full mt-2"
+            className="w-full mt-2 max-md:sticky max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:z-10"
           >
             Suivant <ArrowRight size={16} />
           </Button>
@@ -374,7 +374,9 @@ export default function TransferStepper() {
             </div>
           )}
 
-          <div className="flex gap-3 mt-2">
+          <div
+            className="flex gap-3 mt-2 max-md:sticky max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:z-10 max-md:-mx-4 max-md:border-t max-md:border-gray-100 max-md:bg-white max-md:px-4 max-md:py-3"
+          >
             <Button
               onClick={() => setStep('recipient')}
               variant="outline"
@@ -523,7 +525,7 @@ function PaymentForm({
               <button
                 type="button"
                 onClick={goToTracking}
-                className="text-12 font-semibold text-blue-600 underline underline-offset-2"
+                className="text-12 font-semibold text-blue-600 underline underline-offset-2 max-md:inline-flex max-md:min-h-11 max-md:items-center"
               >
                 Voir le suivi maintenant
               </button>
@@ -560,7 +562,7 @@ function PaymentForm({
         disabled={!stripe || processing}
         variant="brand"
         size="lg"
-        className="w-full"
+        className="w-full max-md:sticky max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:z-10"
       >
         {processing ? 'Paiement en cours…' : 'Payer'}
       </Button>
