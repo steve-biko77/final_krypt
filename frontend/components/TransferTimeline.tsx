@@ -1,4 +1,7 @@
+'use client'
+
 import { CheckCircle, Circle, XCircle, ExternalLink } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { TimelineStep } from '@/lib/transferTimeline'
@@ -31,15 +34,26 @@ function statusAriaLabel(status: TimelineStep['status']): string {
 // Palette alignée sur components/ui/badge.tsx (success/active/secondary/destructive)
 // — mêmes tokens que JourneyCard, pour une cohérence de couleur réelle entre
 // les deux, pas seulement une ressemblance visuelle approximative.
-function StepIcon({ status }: { status: TimelineStep['status'] }) {
+function StepIcon({ status, celebrate = false }: { status: TimelineStep['status']; celebrate?: boolean }) {
   const label = statusAriaLabel(status)
   const common = 'w-9 h-9 rounded-full flex items-center justify-center shrink-0'
+  const prefersReducedMotion = useReducedMotion()
 
   if (status === 'done') {
+    // Petite touche de plaisir — la dernière étape (transfert livré) "pop"
+    // à l'arrivée au lieu d'un simple changement de couleur ; les étapes
+    // "done" intermédiaires restent sobres (pas de célébration prématurée).
     return (
-      <span className={`${common} bg-success-100 text-success-700`} role="img" aria-label={label}>
+      <motion.span
+        className={`${common} bg-success-100 text-success-700`}
+        role="img"
+        aria-label={label}
+        initial={celebrate && !prefersReducedMotion ? { scale: 0.5 } : false}
+        animate={celebrate && !prefersReducedMotion ? { scale: [0.5, 1.2, 1] } : undefined}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+      >
         <CheckCircle size={20} aria-hidden="true" />
-      </span>
+      </motion.span>
     )
   }
   if (status === 'error') {
@@ -115,7 +129,7 @@ export default function TransferTimeline({ steps }: { steps: TimelineStep[] }) {
           <li key={step.key} className="flex gap-4">
             {/* Colonne icône + connecteur vertical */}
             <div className="flex flex-col items-center">
-              <StepIcon status={step.status} />
+              <StepIcon status={step.status} celebrate={isLast && step.status === 'done'} />
               {!isLast && <div className={`w-px flex-1 min-h-8 my-1 ${connectorColor}`} />}
             </div>
 

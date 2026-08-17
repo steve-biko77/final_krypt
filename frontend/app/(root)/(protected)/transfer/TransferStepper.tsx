@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Banknote, CheckCircle, Clock } from 'lucide-react'
 import { loadStripe } from '@stripe/stripe-js'
 import {
   CardElement,
@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import AmountConversionDisplay from '@/components/AmountConversionDisplay'
+import { detectMobileMoneyOperator } from '@/lib/detectMobileMoneyOperator'
 import {
   initiateTransfer,
   simulateTransfer,
@@ -58,6 +59,24 @@ export default function TransferStepper() {
     mobileNumber: '',
     operator: 'MTN_MOMO',
   })
+  // Détection auto de l'opérateur (point 4) — pré-sélectionne seulement,
+  // jamais verrouillé : dès que l'utilisateur choisit manuellement, on arrête
+  // de réécrire son choix même s'il continue à modifier le numéro.
+  const [operatorAutoDetected, setOperatorAutoDetected] = useState(false)
+  const [operatorManuallySet, setOperatorManuallySet] = useState(false)
+
+  const handleMobileNumberChange = (value: string) => {
+    setRecipient((r) => ({ ...r, mobileNumber: value }))
+    if (operatorManuallySet) return
+
+    const detected = detectMobileMoneyOperator(value)
+    if (detected) {
+      setRecipient((r) => ({ ...r, operator: detected === 'MTN' ? 'MTN_MOMO' : 'ORANGE_MONEY' }))
+      setOperatorAutoDetected(true)
+    } else {
+      setOperatorAutoDetected(false)
+    }
+  }
   const [amountStr, setAmountStr] = useState('')
   const [simulation, setSimulation] = useState<TransferSimulation | null>(null)
   const [simError, setSimError] = useState<string | null>(null)
@@ -164,7 +183,20 @@ export default function TransferStepper() {
                     : 'bg-gray-100 text-gray-400'
                 }`}
               >
-                {done ? <CheckCircle size={16} /> : i + 1}
+                {done ? (
+                  // Petite touche de plaisir — le check "pop" à l'apparition
+                  // au lieu de simplement remplacer le chiffre.
+                  <motion.span
+                    initial={prefersReducedMotion ? false : { scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                    className="flex items-center justify-center"
+                  >
+                    <CheckCircle size={16} />
+                  </motion.span>
+                ) : (
+                  i + 1
+                )}
               </div>
               <span
                 className={`hidden sm:inline text-14 font-medium ${
@@ -239,9 +271,7 @@ export default function TransferStepper() {
             <input
               type="tel"
               value={recipient.mobileNumber}
-              onChange={(e) =>
-                setRecipient((r) => ({ ...r, mobileNumber: e.target.value }))
-              }
+              onChange={(e) => handleMobileNumberChange(e.target.value)}
               placeholder="+237 6XX XXX XXX"
               className="w-full h-11 border border-gray-300 rounded-lg px-3 text-16 md:text-14 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -271,9 +301,11 @@ export default function TransferStepper() {
                     name="operator"
                     value={op.value}
                     checked={recipient.operator === op.value}
-                    onChange={() =>
+                    onChange={() => {
                       setRecipient((r) => ({ ...r, operator: op.value }))
-                    }
+                      setOperatorManuallySet(true)
+                      setOperatorAutoDetected(false)
+                    }}
                     className="accent-blue-600"
                   />
                   <span className="text-14 font-medium text-gray-800">
@@ -282,6 +314,11 @@ export default function TransferStepper() {
                 </label>
               ))}
             </div>
+            {operatorAutoDetected && (
+              <p className="text-12 text-gray-400 mt-2">
+                Opérateur détecté automatiquement d&apos;après le numéro — modifiez si besoin.
+              </p>
+            )}
           </div>
 
           <Button
@@ -454,6 +491,7 @@ function PaymentForm({
   const router = useRouter()
   const stripe = useStripe()
   const elements = useElements()
+  const prefersReducedMotion = useReducedMotion()
   const [processing, setProcessing] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
   const [succeeded, setSucceeded] = useState(false)
@@ -507,8 +545,22 @@ function PaymentForm({
 
   if (succeeded) {
     return (
-      <div className="rounded-xl border border-green-200 bg-green-50 p-5 flex items-start gap-3">
+      <div className="relative rounded-xl border border-green-200 bg-green-50 p-5 flex items-start gap-3 overflow-hidden">
         <CheckCircle size={20} className="text-green-600 mt-0.5 shrink-0" aria-hidden="true" />
+        {/* Petite touche de plaisir — un billet qui "s'envole" au moment où
+            le paiement est confirmé, une seule fois (pas de loop), retiré si
+            prefers-reduced-motion. */}
+        {!prefersReducedMotion && (
+          <motion.span
+            initial={{ opacity: 1, x: 0, y: 0, scale: 1, rotate: 0 }}
+            animate={{ opacity: 0, x: 56, y: -36, scale: 0.6, rotate: 18 }}
+            transition={{ duration: 0.9, ease: 'easeOut' }}
+            className="pointer-events-none absolute right-4 top-4 text-green-500"
+            aria-hidden="true"
+          >
+            <Banknote size={28} />
+          </motion.span>
+        )}
         <div>
           <p className="text-14 font-semibold text-green-800">
             Paiement confirmé.
@@ -543,8 +595,12 @@ function PaymentForm({
           Carte bancaire
         </label>
         <div className="w-full min-h-11 flex items-center border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-blue-500">
+          {/* iframe Stripe, non stylable en CSS classique — fontSize passé
+              directement aux options de l'élément. 16px : lisible sur mobile
+              (et cohérent avec la règle anti-zoom iOS déjà appliquée aux
+              autres champs du tunnel), reste discret sur desktop. */}
           <CardElement
-            options={{ style: { base: { fontSize: '14px' } } }}
+            options={{ style: { base: { fontSize: '16px', lineHeight: '24px' } } }}
             className="w-full"
           />
         </div>

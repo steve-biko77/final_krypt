@@ -18,20 +18,30 @@ const OVERALL_TO_JOURNEY_STATUS: Record<OverallState, JourneyCardStatus> = {
   cancelled: 'cancelled',
 }
 
+export interface RecentTransfersListProps {
+  /** 5 par défaut (tableau de bord) ; la page Historique passe une valeur plus
+   * généreuse (20, plafond serveur — cf. `find_by_sender`) pour se rapprocher
+   * d'un historique complet sans pagination dédiée. */
+  limit?: number
+}
+
 /**
  * Correctif Skeleton — chargement CÔTÉ CLIENT (contrairement au reste du
  * tableau de bord, rendu serveur) : c'est le seul moyen de montrer un état de
  * chargement réellement visible pour l'utilisateur, un rendu serveur déjà
  * résolu n'en affiche jamais un au premier chargement.
+ *
+ * Réutilisé tel quel par la page Historique (KRYP — /transaction-history)
+ * avec un `limit` plus généreux, plutôt que de dupliquer ce rendu.
  */
-export default function RecentTransfersList() {
+export default function RecentTransfersList({ limit = 5 }: RecentTransfersListProps) {
   const [transfers, setTransfers] = useState<TransferStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const prefersReducedMotion = useReducedMotion()
 
   useEffect(() => {
     let cancelled = false
-    getMyTransfers()
+    getMyTransfers(limit)
       .then((res) => {
         if (!cancelled) setTransfers(res.results)
       })
@@ -41,7 +51,7 @@ export default function RecentTransfersList() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [limit])
 
   if (error) {
     return (
