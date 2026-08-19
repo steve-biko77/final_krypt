@@ -43,6 +43,14 @@ class AdminReviewNotAllowedError(Exception):
         super().__init__(reason)
 
 
+class BeneficiaryNotFoundError(Exception):
+    """Raised when a saved beneficiary lookup/delete targets an id that either
+    doesn't exist or doesn't belong to the requesting user — the two cases are
+    indistinguishable on purpose (never leak whether a beneficiary exists for
+    someone else)."""
+    pass
+
+
 class AdminReasonRequiredError(Exception):
     """KRYP-31 — Raised when an admin rejects a transfer without a motif
     (Fig. 10 point 4b: motif is mandatory for REJECT, validated at the use-case

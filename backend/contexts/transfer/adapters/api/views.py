@@ -16,23 +16,33 @@ from contexts.compliance.adapters.services.mock_sanctions_checker import MockSan
 from contexts.compliance.adapters.services.scorer_factory import get_configured_scorer
 from contexts.compliance.use_cases.score_aml import ScoreAMLUseCase
 
+from ...adapters.orm.django_saved_beneficiary_repository import (
+    DjangoORMSavedBeneficiaryRepository,
+)
 from ...adapters.orm.django_transaction_repository import DjangoORMTransactionRepository
 from ...adapters.services.fixed_exchange_rate import FixedExchangeRateService
 from ...adapters.services.stripe_payment_service import StripePaymentService
 from ...domain.entities import TransactionStatus
 from ...domain.exceptions import (
+    BeneficiaryNotFoundError,
     InvalidAmountError,
     PaymentServiceError,
     TransferBlockedError,
     TransferNotCancellableError,
 )
 from ...use_cases.cancel_transfer import CancelTransferUseCase
+from ...use_cases.delete_beneficiary import DeleteBeneficiaryUseCase
 from ...use_cases.initiate_transfer import (
     InitiateTransferInput,
     InitiateTransferUseCase,
 )
+from ...use_cases.list_beneficiaries import ListBeneficiariesUseCase
+from ...use_cases.save_beneficiary import SaveBeneficiaryInput, SaveBeneficiaryUseCase
 from ...use_cases.simulate_transfer import SimulateTransferInput, SimulateTransferUseCase
-from .serializers import InitiateTransferRequestSerializer
+from .serializers import (
+    InitiateTransferRequestSerializer,
+    SaveBeneficiaryRequestSerializer,
+)
 
 
 class SimulateTransferView(APIView):
@@ -106,6 +116,7 @@ def _build_initiate_use_case() -> InitiateTransferUseCase:
             audit_sample_rate=settings.AML_AUDIT_SAMPLE_RATE,
         ),
         transaction_repo=DjangoORMTransactionRepository(),
+        beneficiary_repo=DjangoORMSavedBeneficiaryRepository(),
     )
 
 
@@ -220,6 +231,82 @@ class InitiateTransferView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+def _build_beneficiary_payload(beneficiary) -> dict:
+    return {
+        "id": beneficiary.id,
+        "beneficiary_name": beneficiary.beneficiary_name,
+        "beneficiary_country": beneficiary.beneficiary_country,
+        "momo_number": beneficiary.momo_number,
+        "operator": beneficiary.operator,
+        "created_at": (
+            beneficiary.created_at.isoformat() if beneficiary.created_at else None
+        ),
+        "last_used_at": (
+            beneficiary.last_used_at.isoformat() if beneficiary.last_used_at else None
+        ),
+    }
+
+
+class BeneficiariesView(APIView):
+    """GET/POST /api/transfer/beneficiaries — carnet de contacts de
+    l'utilisateur connecté. Isolation stricte : toujours filtré/rattaché à
+    request.user, jamais à un id transmis par le client."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        use_case = ListBeneficiariesUseCase(
+            beneficiary_repo=DjangoORMSavedBeneficiaryRepository()
+        )
+        beneficiaries = use_case.execute(str(request.user.pk))
+        return Response(
+            [_build_beneficiary_payload(b) for b in beneficiaries],
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        serializer = SaveBeneficiaryRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        use_case = SaveBeneficiaryUseCase(
+            beneficiary_repo=DjangoORMSavedBeneficiaryRepository()
+        )
+        beneficiary = use_case.execute(
+            SaveBeneficiaryInput(
+                user_id=str(request.user.pk),
+                beneficiary_name=data["beneficiary_name"],
+                beneficiary_country=data["beneficiary_country"],
+                momo_number=data["momo_number"],
+                operator=data["operator"],
+            )
+        )
+        return Response(
+            _build_beneficiary_payload(beneficiary), status=status.HTTP_201_CREATED
+        )
+
+
+class BeneficiaryDetailView(APIView):
+    """DELETE /api/transfer/beneficiaries/<id> — supprime un bénéficiaire
+    enregistré. La garde d'isolation (uniquement le sien) est atomique dans le
+    repository (filtre pk + user_id dans la même requête) : un id valide
+    appartenant à un autre utilisateur renvoie 404, jamais 403 (n'expose pas
+    l'existence du bénéficiaire chez quelqu'un d'autre)."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, id: str):
+        use_case = DeleteBeneficiaryUseCase(
+            beneficiary_repo=DjangoORMSavedBeneficiaryRepository()
+        )
+        try:
+            use_case.execute(beneficiary_id=id, user_id=str(request.user.pk))
+        except BeneficiaryNotFoundError:
+            return Response(
+                {"error": "Bénéficiaire introuvable"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class StripeWebhookView(APIView):

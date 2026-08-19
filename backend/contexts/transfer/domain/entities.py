@@ -33,6 +33,23 @@ class TransactionStatus(str, Enum):
 
 
 @dataclass
+class SavedBeneficiary:
+    """Carnet de contacts — bénéficiaire enregistré par un utilisateur pour
+    resélection rapide dans le tunnel de transfert (jamais créé sans action
+    explicite : voir SaveBeneficiaryUseCase, appelé uniquement si l'utilisateur
+    a coché "Enregistrer ce bénéficiaire")."""
+
+    user_id: str
+    beneficiary_name: str
+    beneficiary_country: str
+    momo_number: str
+    operator: str  # Literal["MTN_MOMO", "ORANGE_MONEY"]
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+
+@dataclass
 class Transaction:
     sender_id: str
     beneficiary_name: str

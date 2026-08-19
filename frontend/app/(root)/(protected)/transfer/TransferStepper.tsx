@@ -14,7 +14,12 @@ import { toast } from 'sonner'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import AmountConversionDisplay from '@/components/AmountConversionDisplay'
+import BeneficiaryPicker from '@/components/BeneficiaryPicker'
 import { detectMobileMoneyOperator } from '@/lib/detectMobileMoneyOperator'
+import {
+  saveBeneficiary,
+  type SavedBeneficiary,
+} from '@/lib/actions/beneficiaries.actions'
 import {
   initiateTransfer,
   simulateTransfer,
@@ -76,6 +81,34 @@ export default function TransferStepper() {
   const [operatorAutoDetected, setOperatorAutoDetected] = useState(false)
   const [operatorManuallySet, setOperatorManuallySet] = useState(false)
 
+  // Carnet de contacts — sélection dans BeneficiaryPicker (préremplissage) et
+  // case "Enregistrer ce bénéficiaire" (opt-in, jamais cochée par défaut).
+  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<string | null>(null)
+  const [saveBeneficiaryChecked, setSaveBeneficiaryChecked] = useState(false)
+
+  const handleSelectBeneficiary = (b: SavedBeneficiary) => {
+    setRecipient({
+      name: b.beneficiary_name,
+      country: b.beneficiary_country,
+      mobileNumber: b.momo_number,
+      operator: b.operator,
+    })
+    setSelectedBeneficiaryId(b.id)
+    // L'opérateur vient du bénéficiaire choisi, pas d'une détection : ne pas
+    // le laisser être réécrit si l'utilisateur retouche le numéro ensuite.
+    setOperatorManuallySet(true)
+    setOperatorAutoDetected(false)
+    setSaveBeneficiaryChecked(false)
+  }
+
+  const handleNewBeneficiary = () => {
+    setRecipient({ name: '', country: 'CM', mobileNumber: '', operator: 'MTN_MOMO' })
+    setSelectedBeneficiaryId(null)
+    setOperatorManuallySet(false)
+    setOperatorAutoDetected(false)
+    setSaveBeneficiaryChecked(false)
+  }
+
   const handleMobileNumberChange = (value: string) => {
     setRecipient((r) => ({ ...r, mobileNumber: value }))
     if (operatorManuallySet) return
@@ -133,6 +166,24 @@ export default function TransferStepper() {
           toast.success('Transfert initié', {
             description: 'Il est en cours de vérification par nos équipes.',
           })
+        }
+
+        // Carnet de contacts — opt-in uniquement (case cochée), déclenché au
+        // moment de l'initiation. Best-effort : un échec ici ne doit jamais
+        // remettre en cause un transfert déjà initié avec succès.
+        if (saveBeneficiaryChecked) {
+          try {
+            await saveBeneficiary({
+              beneficiary_name: recipient.name.trim(),
+              beneficiary_country: recipient.country,
+              momo_number: recipient.mobileNumber.trim(),
+              operator: recipient.operator,
+            })
+          } catch (e) {
+            toast.error("Le bénéficiaire n'a pas pu être enregistré", {
+              description: e instanceof Error ? e.message : undefined,
+            })
+          }
         }
       } catch (e) {
         setInitError(
@@ -241,6 +292,12 @@ export default function TransferStepper() {
           transition={{ duration: 0.2 }}
           className="flex flex-col gap-5"
         >
+          <BeneficiaryPicker
+            selectedId={selectedBeneficiaryId}
+            onSelect={handleSelectBeneficiary}
+            onNew={handleNewBeneficiary}
+          />
+
           <div>
             <label className="block text-14 font-medium text-gray-700 mb-1">
               Nom complet du bénéficiaire
@@ -338,6 +395,21 @@ export default function TransferStepper() {
               )}
             </div>
           </div>
+
+          {/* Opt-in explicite — jamais cochée par défaut, jamais de
+              sauvegarde silencieuse. L'appel POST /beneficiaries n'a lieu
+              qu'à l'initiation réelle du transfert (handleConfirm). */}
+          <label className="flex items-center gap-2 min-h-11 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={saveBeneficiaryChecked}
+              onChange={(e) => setSaveBeneficiaryChecked(e.target.checked)}
+              className="size-4 accent-blue-600"
+            />
+            <span className="text-14 text-gray-700">
+              Enregistrer ce bénéficiaire pour la prochaine fois
+            </span>
+          </label>
 
           {/* Pas de sticky ici (contrairement aux étapes Montant/Paiement) —
               cette étape est courte et tient sans scroll sur tous les

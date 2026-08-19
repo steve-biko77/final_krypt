@@ -4,6 +4,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import TransferStepper from './TransferStepper'
 import { initiateTransfer, simulateTransfer } from '@/lib/actions/transfer.actions'
+import { getSavedBeneficiaries, saveBeneficiary } from '@/lib/actions/beneficiaries.actions'
+import type { SavedBeneficiary } from '@/lib/actions/beneficiaries.actions'
 
 const routerPush = vi.fn()
 vi.mock('next/navigation', () => ({
@@ -43,9 +45,19 @@ vi.mock('@/lib/actions/transfer.actions', () => ({
   initiateTransfer: vi.fn(),
 }))
 
+// Carnet de contacts — BeneficiaryPicker (monté sur l'étape Destinataire)
+// appelle getSavedBeneficiaries au montage ; liste vide par défaut pour ne
+// rien changer aux tests existants (le picker ne rend alors rien).
+vi.mock('@/lib/actions/beneficiaries.actions', () => ({
+  getSavedBeneficiaries: vi.fn().mockResolvedValue([]),
+  saveBeneficiary: vi.fn(),
+  deleteBeneficiary: vi.fn(),
+}))
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.mocked(getSavedBeneficiaries).mockResolvedValue([])
 })
 
 async function goToAmountStep(user: ReturnType<typeof userEvent.setup>) {
@@ -210,6 +222,104 @@ describe('TransferStepper — le bouton Payer ne reste jamais bloqué en cas d\'
     )
     expect(payButton).not.toBeDisabled()
     expect(payButton).toHaveTextContent(/^payer$/i)
+
+    vi.useRealTimers()
+  }, 15000)
+})
+
+describe('TransferStepper — carnet de contacts', () => {
+  function savedBeneficiary(overrides: Partial<SavedBeneficiary> = {}): SavedBeneficiary {
+    return {
+      id: 'ben-1',
+      beneficiary_name: 'Alice Ngo',
+      beneficiary_country: 'CM',
+      momo_number: '+237655000089',
+      operator: 'ORANGE_MONEY',
+      created_at: '2026-01-01T10:00:00Z',
+      last_used_at: null,
+      ...overrides,
+    }
+  }
+
+  it('sélectionner un bénéficiaire enregistré préremplit le formulaire', async () => {
+    vi.mocked(getSavedBeneficiaries).mockResolvedValue([savedBeneficiary()])
+    const user = userEvent.setup()
+
+    render(<TransferStepper />)
+
+    await waitFor(() => expect(screen.getByText('Alice Ngo')).toBeInTheDocument())
+    await user.click(screen.getByText('Alice Ngo'))
+
+    expect(screen.getByPlaceholderText('Jean-Pierre Mbarga')).toHaveValue('Alice Ngo')
+    expect(screen.getByPlaceholderText('+237 6XX XXX XXX')).toHaveValue('+237655000089')
+    expect(screen.getByRole('radio', { name: /orange money/i })).toBeChecked()
+  })
+
+  it('la case "Enregistrer ce bénéficiaire" cochée déclenche l\'enregistrement à la confirmation', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ delay: null })
+    vi.mocked(simulateTransfer).mockResolvedValue({
+      amount_eur: '100.00',
+      fees_eur: '1.50',
+      fees_percentage: '1.5',
+      net_eur: '98.50',
+      exchange_rate: '655.957',
+      amount_xaf: '64611.76',
+    })
+    vi.mocked(initiateTransfer).mockResolvedValue({
+      transaction_id: 'txn-abc',
+      status: 'PROCESSING',
+      client_secret: 'cs_test_123',
+    })
+    vi.mocked(saveBeneficiary).mockResolvedValue(savedBeneficiary({ id: 'ben-new' }))
+
+    render(<TransferStepper />)
+    await user.type(screen.getByPlaceholderText('Jean-Pierre Mbarga'), 'Jean Mbarga')
+    await user.type(screen.getByPlaceholderText('+237 6XX XXX XXX'), '+237699000002')
+    await user.click(screen.getByLabelText(/enregistrer ce bénéficiaire/i))
+    await user.click(screen.getByRole('button', { name: /suivant/i }))
+
+    await user.type(screen.getByLabelText('Montant à envoyer en euros'), '100')
+    await vi.advanceTimersByTimeAsync(300)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /confirmer le transfert/i })).toBeEnabled()
+    )
+    await user.click(screen.getByRole('button', { name: /confirmer le transfert/i }))
+
+    await waitFor(() =>
+      expect(saveBeneficiary).toHaveBeenCalledWith({
+        beneficiary_name: 'Jean Mbarga',
+        beneficiary_country: 'CM',
+        momo_number: '+237699000002',
+        // +237699… -> préfixe 69x -> détecté Orange automatiquement (aucune
+        // sélection manuelle de l'opérateur dans ce test).
+        operator: 'ORANGE_MONEY',
+      })
+    )
+
+    vi.useRealTimers()
+  }, 15000)
+
+  it("sans cocher la case, aucun appel à l'enregistrement du bénéficiaire n'est déclenché", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ delay: null })
+    vi.mocked(simulateTransfer).mockResolvedValue({
+      amount_eur: '100.00',
+      fees_eur: '1.50',
+      fees_percentage: '1.5',
+      net_eur: '98.50',
+      exchange_rate: '655.957',
+      amount_xaf: '64611.76',
+    })
+    vi.mocked(initiateTransfer).mockResolvedValue({
+      transaction_id: 'txn-abc',
+      status: 'PROCESSING',
+      client_secret: 'cs_test_123',
+    })
+
+    await goToPaymentStep(user)
+
+    expect(saveBeneficiary).not.toHaveBeenCalled()
 
     vi.useRealTimers()
   }, 15000)
