@@ -279,6 +279,13 @@ class EmailTemplateRenderTests(SimpleTestCase):
         'notification/transfer_failed.html': {
             'beneficiary_name': 'Jean Mbarga',
         },
+        'notification/docs_requested.html': {},
+        'notification/admin_alert_pending_review.html': {
+            'transaction_id': 'txn-test-1',
+        },
+        'notification/admin_alert_escalated.html': {
+            'transaction_id': 'txn-test-1',
+        },
     }
 
     def test_email_template_renders_without_error(self):

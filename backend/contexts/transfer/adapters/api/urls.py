@@ -8,6 +8,7 @@ from .views import (
     MyTransfersView,
     SimulateTransferView,
     StripeWebhookView,
+    TransferReceiptView,
     TransferStatusView,
 )
 
@@ -24,4 +25,5 @@ urlpatterns = [
     ),
     path("<str:id>/status", TransferStatusView.as_view(), name="transfer-status"),
     path("<str:id>/cancel", CancelTransferView.as_view(), name="transfer-cancel"),
+    path("<str:id>/receipt", TransferReceiptView.as_view(), name="transfer-receipt"),
 ]

@@ -191,3 +191,43 @@ export const cancelTransfer = async (
 
   return res.json();
 };
+
+export interface TransferReceipt {
+  filename: string;
+  // Contenu binaire du PDF encodé en base64 — un Server Action ne peut pas
+  // retourner un Blob/ArrayBuffer directement de façon fiable ; même
+  // contrainte que exportAdminAMLDailyReportCSV (qui, elle, retourne du texte
+  // brut car le CSV est du texte). Décodé côté client avant de construire le
+  // Blob pour le téléchargement.
+  base64: string;
+}
+
+// Reçu PDF téléchargeable — uniquement disponible pour un transfert DELIVERED
+// (le backend renvoie une erreur explicite sinon, propagée telle quelle).
+export const downloadTransferReceipt = async (id: string): Promise<TransferReceipt> => {
+  const jar = await cookies();
+  const token = jar.get('krypt-access-token')?.value;
+  if (!token) throw new Error('Non authentifié');
+
+  const res = await fetch(`${API_BASE}/api/transfer/${id}/receipt`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err as { detail?: string; error?: string }).detail
+      ?? (err as { error?: string }).error
+      ?? `Erreur ${res.status}`;
+    throw new Error(msg);
+  }
+
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `recu-krypt-${id}.pdf`;
+
+  const buffer = await res.arrayBuffer();
+  const base64 = Buffer.from(buffer).toString('base64');
+
+  return { filename, base64 };
+};

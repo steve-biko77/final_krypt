@@ -1521,3 +1521,77 @@ class SavedBeneficiaryViewTests(APITestCase):
             SavedBeneficiaryModel.objects.filter(pk=beneficiary_of_a['id']).exists(),
             "le bénéficiaire de A doit toujours exister, non supprimé par B",
         )
+
+
+class TransferReceiptViewTests(APITestCase):
+    """GET /api/transfer/<id>/receipt — reçu PDF, uniquement pour un transfert
+    DELIVERED appartenant à l'utilisateur connecté. On vérifie que le contenu
+    retourné est un PDF valide (magic bytes), pas son rendu exact — même
+    approche que test_tracfin_report_contains_academic_disclaimer."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _create_transaction(self, sender_id=None, **overrides):
+        from contexts.transfer.models import TransactionModel
+        defaults = dict(
+            sender_id=uuid.UUID(sender_id or self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('100.00'),
+            fees_eur=Decimal('1.50'),
+            amount_xaf=Decimal('64611.76'),
+            status='DELIVERED',
+            escrow_tx_hash='0xdeadbeef',
+            payout_reference='mtn-ref-1',
+        )
+        defaults.update(overrides)
+        return TransactionModel.objects.create(**defaults)
+
+    def test_receipt_for_delivered_transfer_returns_valid_pdf(self):
+        txn = self._create_transaction()
+
+        res = self.client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertIn('attachment', res['Content-Disposition'])
+        self.assertIn(str(txn.id), res['Content-Disposition'])
+        self.assertTrue(res.content.startswith(b'%PDF-'))
+
+    def test_receipt_requires_authentication(self):
+        txn = self._create_transaction()
+        anon_client = self.client_class()
+
+        res = anon_client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_receipt_not_available_for_non_delivered_transfer(self):
+        txn = self._create_transaction(status='ESCROWED')
+
+        res = self.client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data['error'], 'RECEIPT_NOT_AVAILABLE')
+
+    def test_receipt_nonexistent_transfer_returns_404(self):
+        res = self.client.get(f'/api/transfer/{uuid.uuid4()}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_receipt_isolation_other_user_returns_404_not_403(self):
+        from contexts.identity.models import UserModel
+
+        other_user = UserModel.objects.create_user(
+            email='receipt-other@krypt.fr', password='Secur3Pass!',
+            first_name='Autre', last_name='Sender', phone='+237699000098',
+        )
+        txn = self._create_transaction(sender_id=str(other_user.pk))
+
+        res = self.client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)

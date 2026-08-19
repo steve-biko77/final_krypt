@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { AlertCircle, ArrowLeft, ArrowRight } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +20,7 @@ import {
 import TransferTimeline from '@/components/TransferTimeline'
 import {
   cancelTransfer,
+  downloadTransferReceipt,
   getTransferStatus,
   type TransferStatus,
 } from '@/lib/actions/transfer.actions'
@@ -70,6 +71,7 @@ export default function TransferTrackingPage() {
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -122,6 +124,33 @@ export default function TransferTrackingPage() {
       setCancelling(false)
     }
   }, [id, stopPolling])
+
+  const handleDownloadReceipt = useCallback(async () => {
+    if (!id) return
+
+    setDownloadingReceipt(true)
+    try {
+      const { filename, base64 } = await downloadTransferReceipt(id)
+      const byteChars = atob(base64)
+      const byteNumbers = new Array(byteChars.length)
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i)
+      const byteArray = new Uint8Array(byteNumbers)
+      const blob = new Blob([byteArray], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Une erreur est survenue.'
+      toast.error('Téléchargement du reçu impossible', { description: message })
+    } finally {
+      setDownloadingReceipt(false)
+    }
+  }, [id])
 
   if (loading) {
     return (
@@ -217,6 +246,22 @@ export default function TransferTrackingPage() {
             {cancelError && (
               <p className="text-12 text-red-600 mt-1">{cancelError}</p>
             )}
+          </div>
+        )}
+
+        {data.status === 'DELIVERED' && (
+          <div className="mt-4">
+            <Button
+              type="button"
+              onClick={handleDownloadReceipt}
+              disabled={downloadingReceipt}
+              variant="outline"
+              size="sm"
+              className="max-md:h-11 max-md:px-4"
+            >
+              <Download size={14} aria-hidden="true" />
+              {downloadingReceipt ? 'Téléchargement…' : 'Télécharger le reçu'}
+            </Button>
           </div>
         )}
       </div>

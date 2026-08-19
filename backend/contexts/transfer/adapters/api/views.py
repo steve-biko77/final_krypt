@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 import stripe
 from django.conf import settings
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -21,6 +22,7 @@ from ...adapters.orm.django_saved_beneficiary_repository import (
 )
 from ...adapters.orm.django_transaction_repository import DjangoORMTransactionRepository
 from ...adapters.services.fixed_exchange_rate import FixedExchangeRateService
+from ...adapters.services.receipt_generator import generate_transfer_receipt_pdf
 from ...adapters.services.stripe_payment_service import StripePaymentService
 from ...domain.entities import TransactionStatus
 from ...domain.exceptions import (
@@ -481,3 +483,54 @@ class CancelTransferView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class TransferReceiptView(APIView):
+    """GET /api/transfer/<id>/receipt — reçu PDF téléchargeable, généré à la
+    volée (pas de persistance/stockage, contrairement au rapport TRACFIN).
+
+    Isolation : 404 si le transfert n'existe pas OU n'appartient pas à
+    l'utilisateur connecté — jamais 403, même pattern que les bénéficiaires
+    enregistrés (n'expose pas l'existence d'un transfert appartenant à
+    quelqu'un d'autre). Pas de dérogation staff ici, contrairement à
+    /status et /cancel : le reçu est un document personnel de l'émetteur.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id: str):
+        repo = DjangoORMTransactionRepository()
+        transaction = repo.find_by_id(id)
+        if transaction is None or transaction.sender_id != str(request.user.pk):
+            return Response(
+                {"error": "Transaction introuvable"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if transaction.status != TransactionStatus.DELIVERED:
+            return Response(
+                {
+                    "error": "RECEIPT_NOT_AVAILABLE",
+                    "detail": "Le reçu n'est disponible qu'une fois le transfert livré.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pdf_bytes = generate_transfer_receipt_pdf({
+            "transaction_id": transaction.id,
+            "created_at": (
+                transaction.created_at.strftime("%d/%m/%Y à %H:%M UTC")
+                if transaction.created_at else "—"
+            ),
+            "amount_eur": str(transaction.amount_eur),
+            "amount_xaf": str(transaction.amount_xaf),
+            "beneficiary_name": transaction.beneficiary_name,
+            "beneficiary_country": transaction.beneficiary_country,
+            "status": transaction.status.value,
+            "escrow_tx_hash": transaction.escrow_tx_hash,
+        })
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="recu-krypt-{transaction.id}.pdf"'
+        )
+        return response
