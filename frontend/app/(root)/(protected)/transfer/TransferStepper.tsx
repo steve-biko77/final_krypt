@@ -661,12 +661,18 @@ function PaymentForm({
         </div>
       )}
 
+      {/* Pas de sticky ici, même correctif que "Suivant" à l'étape
+          Destinataire (résidu oublié lors de ce correctif-là) : l'étape
+          Paiement (label + champ carte + erreur éventuelle) est courte et
+          tient sans scroll, un bouton sticky s'y superposait au champ carte
+          (KRYP — correctif chevauchement Payer/carte). Flux vertical normal
+          (flex-col gap-4 du conteneur parent) suffit. */}
       <Button
         onClick={handlePay}
         disabled={!stripe || !cardReady || !cardComplete || processing}
         variant="brand"
         size="lg"
-        className="w-full max-md:sticky max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:z-10"
+        className="w-full"
       >
         {processing ? 'Paiement en cours…' : 'Payer'}
       </Button>
