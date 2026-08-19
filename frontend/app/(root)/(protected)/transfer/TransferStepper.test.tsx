@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -17,7 +18,22 @@ vi.mock('@stripe/stripe-js', () => ({ loadStripe: () => Promise.resolve(null) })
 const confirmCardPayment = vi.fn()
 vi.mock('@stripe/react-stripe-js', () => ({
   Elements: ({ children }: { children: React.ReactNode }) => children,
-  CardElement: () => null,
+  // Simule une carte montée (onReady) et complète (onChange complete:true)
+  // dès le rendu — cf. le garde-fou cardReady/cardComplete de PaymentForm,
+  // qui bloquerait sinon le bouton "Payer" dans tous les tests existants.
+  CardElement: ({
+    onReady,
+    onChange,
+  }: {
+    onReady?: () => void
+    onChange?: (e: { complete: boolean }) => void
+  }) => {
+    useEffect(() => {
+      onReady?.()
+      onChange?.({ complete: true })
+    }, [onReady, onChange])
+    return null
+  },
   useElements: () => ({ getElement: () => ({}) }),
   useStripe: () => ({ confirmCardPayment }),
 }))
@@ -154,6 +170,46 @@ describe('TransferStepper — redirection auto post-paiement', () => {
 
     expect(routerPush).toHaveBeenCalledWith('/transfer/txn-abc')
     expect(routerPush).toHaveBeenCalledTimes(1)
+
+    vi.useRealTimers()
+  }, 15000)
+})
+
+describe('TransferStepper — le bouton Payer ne reste jamais bloqué en cas d\'erreur', () => {
+  it('se débloque et affiche un message après un refus Stripe (error retourné par confirmCardPayment)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ delay: null })
+    confirmCardPayment.mockResolvedValue({ error: { message: 'Carte refusée par la banque.' } })
+
+    await goToPaymentStep(user)
+    const payButton = screen.getByRole('button', { name: /^payer$/i })
+    await user.click(payButton)
+
+    await waitFor(() => expect(screen.getByText('Carte refusée par la banque.')).toBeInTheDocument())
+    expect(payButton).not.toBeDisabled()
+    expect(payButton).toHaveTextContent(/^payer$/i)
+
+    vi.useRealTimers()
+  }, 15000)
+
+  it("se débloque et affiche un message après une exception inattendue (ex: IntegrationError Stripe)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ delay: null })
+    confirmCardPayment.mockRejectedValue(
+      new Error('We could not retrieve data from the specified Element.')
+    )
+
+    await goToPaymentStep(user)
+    const payButton = screen.getByRole('button', { name: /^payer$/i })
+    await user.click(payButton)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('We could not retrieve data from the specified Element.')
+      ).toBeInTheDocument()
+    )
+    expect(payButton).not.toBeDisabled()
+    expect(payButton).toHaveTextContent(/^payer$/i)
 
     vi.useRealTimers()
   }, 15000)

@@ -26,6 +26,17 @@ const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '',
 )
 
+// Correctif IntegrationError Stripe — objet stable au niveau module plutôt
+// qu'un littéral recréé à chaque rendu de PaymentForm (bonne pratique
+// officielle react-stripe-js). Seul fontSize est nécessaire (règle anti-zoom
+// iOS déjà appliquée ailleurs dans le tunnel, cf. .input-class) : lineHeight
+// a été retiré, il n'apporte rien ici et simplifie la config au strict
+// nécessaire — cf. chevauchement visuel mobile, corrigé côté conteneur
+// (dimensions CSS) plutôt que côté Stripe.
+const CARD_ELEMENT_OPTIONS = {
+  style: { base: { fontSize: '16px' } },
+}
+
 type Operator = 'MTN_MOMO' | 'ORANGE_MONEY'
 type Step = 'recipient' | 'amount' | 'payment'
 
@@ -314,19 +325,32 @@ export default function TransferStepper() {
                 </label>
               ))}
             </div>
-            {operatorAutoDetected && (
-              <p className="text-12 text-gray-400 mt-2">
-                Opérateur détecté automatiquement d&apos;après le numéro — modifiez si besoin.
-              </p>
-            )}
+            {/* Espace réservé sous mobile (min-h-6, ~hauteur du texte d'aide)
+                que l'opérateur soit auto-détecté ou non : évite tout
+                reflow/chevauchement avec le bouton "Suivant" dans l'état
+                initial (avant saisie du numéro). md+ inchangé (0 réservé,
+                comportement d'origine : rien si aucune détection). */}
+            <div className="min-h-6 md:min-h-0">
+              {operatorAutoDetected && (
+                <p className="text-12 text-gray-400 mt-2">
+                  Opérateur détecté automatiquement d&apos;après le numéro — modifiez si besoin.
+                </p>
+              )}
+            </div>
           </div>
 
+          {/* Pas de sticky ici (contrairement aux étapes Montant/Paiement) —
+              cette étape est courte et tient sans scroll sur tous les
+              écrans ; un bouton sticky basé sur un offset viewport pouvait se
+              chevaucher avec le sélecteur d'opérateur juste au-dessus quand
+              le contenu de l'étape est court (KRYP — correctif chevauchement
+              mobile). */}
           <Button
             onClick={() => setStep('amount')}
             disabled={!recipientValid}
             variant="brand"
             size="lg"
-            className="w-full mt-2 max-md:sticky max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:z-10"
+            className="w-full mt-2"
           >
             Suivant <ArrowRight size={16} />
           </Button>
@@ -496,6 +520,13 @@ function PaymentForm({
   const [payError, setPayError] = useState<string | null>(null)
   const [succeeded, setSucceeded] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(REDIRECT_DELAY_SECONDS)
+  // Défensif (root cause IntegrationError) — le bouton ne doit jamais pouvoir
+  // déclencher confirmCardPayment avant que l'Element ait émis 'ready'
+  // (iframe montée) ET signalé complete:true (numéro/date/CVC valides). Sans
+  // ces deux garde-fous, un clic rapide pouvait partir avant que Stripe
+  // considère l'Element "mounted and ready".
+  const [cardReady, setCardReady] = useState(false)
+  const [cardComplete, setCardComplete] = useState(false)
 
   const goToTracking = () => {
     if (transactionId) router.push(`/transfer/${transactionId}`)
@@ -520,27 +551,41 @@ function PaymentForm({
   }, [succeeded, transactionId, router])
 
   const handlePay = async () => {
-    if (!stripe || !elements) return
-    const card = elements.getElement(CardElement)
-    if (!card) return
+    if (!stripe || !elements || !cardReady || !cardComplete) return
 
     setProcessing(true)
     setPayError(null)
-    const { error, paymentIntent } = await stripe.confirmCardPayment(
-      clientSecret,
-      { payment_method: { card } },
-    )
-    if (error) {
-      const message = error.message ?? 'Le paiement a échoué.'
+    // try/catch/finally englobe TOUT (récupération de l'Element ET l'appel
+    // Stripe) — quelle que soit la nature de l'erreur (IntegrationError,
+    // rejet Stripe, panne réseau), le bouton doit toujours se débloquer et
+    // afficher un message clair, jamais rester bloqué sur "Paiement en cours…".
+    try {
+      const card = elements.getElement(CardElement)
+      if (!card) {
+        throw new Error("Le champ carte n'est pas prêt. Veuillez réessayer.")
+      }
+
+      const { error, paymentIntent } = await stripe.confirmCardPayment(
+        clientSecret,
+        { payment_method: { card } },
+      )
+      if (error) {
+        const message = error.message ?? 'Le paiement a échoué.'
+        setPayError(message)
+        toast.error('Paiement refusé', { description: message })
+        return
+      }
+      if (paymentIntent && paymentIntent.status === 'succeeded') {
+        setSucceeded(true)
+      }
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : 'Une erreur est survenue pendant le paiement. Réessayez.'
       setPayError(message)
-      toast.error('Paiement refusé', { description: message })
+      toast.error('Paiement impossible', { description: message })
+    } finally {
       setProcessing(false)
-      return
     }
-    if (paymentIntent && paymentIntent.status === 'succeeded') {
-      setSucceeded(true)
-    }
-    setProcessing(false)
   }
 
   if (succeeded) {
@@ -594,13 +639,16 @@ function PaymentForm({
         <label className="block text-14 font-medium text-gray-700 mb-1">
           Carte bancaire
         </label>
-        <div className="w-full min-h-11 flex items-center border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-blue-500">
-          {/* iframe Stripe, non stylable en CSS classique — fontSize passé
-              directement aux options de l'élément. 16px : lisible sur mobile
-              (et cohérent avec la règle anti-zoom iOS déjà appliquée aux
-              autres champs du tunnel), reste discret sur desktop. */}
+        {/* Chevauchement visuel mobile — corrigé par les DIMENSIONS du
+            conteneur (min-h généreux sous md) plutôt que par la config
+            Stripe : à fontSize 16px, le champ carte combiné (numéro + date +
+            CVC) a besoin de plus de hauteur pour rester lisible sans se
+            chevaucher sur les petits écrans. Desktop (md+) inchangé. */}
+        <div className="w-full min-h-11 max-md:min-h-16 flex items-center border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-blue-500">
           <CardElement
-            options={{ style: { base: { fontSize: '16px', lineHeight: '24px' } } }}
+            options={CARD_ELEMENT_OPTIONS}
+            onReady={() => setCardReady(true)}
+            onChange={(e) => setCardComplete(e.complete)}
             className="w-full"
           />
         </div>
@@ -615,7 +663,7 @@ function PaymentForm({
 
       <Button
         onClick={handlePay}
-        disabled={!stripe || processing}
+        disabled={!stripe || !cardReady || !cardComplete || processing}
         variant="brand"
         size="lg"
         className="w-full max-md:sticky max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-md:z-10"
