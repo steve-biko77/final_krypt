@@ -61,7 +61,17 @@ async function setAccessCookie(token: string) {
   jar.set(TOKEN_COOKIE, token, {
     path: '/',
     httpOnly: true,
-    sameSite: 'strict',
+    // 'strict' bloque le cookie sur toute navigation top-level dont
+    // l'origine n'est pas le site lui-même — y compris un clic sur un lien
+    // depuis un client mail (le cas "Voir le récapitulatif") ou un favori,
+    // même si une session valide existe déjà dans un autre onglet du MÊME
+    // navigateur (le cookie est bien partagé entre onglets, ce n'est pas le
+    // problème — cf. récap de la correction pour le diagnostic complet).
+    // 'lax' envoie le cookie sur ces navigations GET top-level tout en
+    // continuant de le bloquer sur les requêtes cross-site en sous-ressource
+    // ou non-GET (formulaires, XHR/fetch) : protection CSRF inchangée pour
+    // ce qui compte réellement.
+    sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 60 * 60,
   });
