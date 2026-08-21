@@ -1,3 +1,7 @@
+import functools
+from email.mime.image import MIMEImage
+from pathlib import Path
+
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
@@ -5,6 +9,28 @@ from django.utils.html import strip_tags
 
 from ...domain.entities import NotificationEvent, NotificationEventType
 from ...ports.notification_service import NotificationServicePort
+
+# Logo KRYPT — converti UNE FOIS en PNG statique depuis frontend/public/icons/
+# logo.svg (sharp/librsvg, 120x120, voir contexts/notification/assets/) plutôt
+# que chargé depuis une URL externe (http://localhost:3000/... n'est jamais
+# atteignable par le serveur de messagerie d'un vrai destinataire). Attaché en
+# pièce jointe "inline" et référencé par Content-ID (cid:logo_krypt) dans
+# _base_email.html — fonctionne sans connexion réseau du client mail.
+_LOGO_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "logo_krypt.png"
+_LOGO_CID = "logo_krypt"
+
+
+@functools.lru_cache(maxsize=1)
+def _logo_bytes() -> bytes:
+    return _LOGO_PATH.read_bytes()
+
+
+def _logo_mime_image() -> MIMEImage:
+    image = MIMEImage(_logo_bytes())
+    image.add_header("Content-ID", f"<{_LOGO_CID}>")
+    image.add_header("Content-Disposition", "inline", filename="logo_krypt.png")
+    return image
+
 
 _TEMPLATE_BY_EVENT = {
     NotificationEventType.USER_REGISTERED: (
@@ -61,4 +87,9 @@ class DjangoEmailService(NotificationServicePort):
             to=[to],
         )
         message.attach_alternative(html_body, "text/html")
+        # multipart/related (au lieu du multipart/mixed par défaut) — requis
+        # pour que les clients mail résolvent cid:logo_krypt comme une image
+        # intégrée plutôt que comme une pièce jointe ordinaire.
+        message.mixed_subtype = "related"
+        message.attach(_logo_mime_image())
         message.send()
