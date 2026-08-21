@@ -135,6 +135,31 @@ jobs:
         working-directory: frontend
 
   # ─────────────────────────────────────────────
+  # Job — Vérifie la présence du secret Stripe, pour gater integration-tests.
+  # Correctif : `secrets` n'est pas utilisable directement dans un `if:` de job
+  # (restriction de la plateforme, erreur "Unrecognized named-value: 'secrets'"
+  # sinon) — et le contexte `env` d'un job n'est pas non plus disponible dans le
+  # `if:` de CE MÊME job (peuplé seulement une fois le job effectivement démarré,
+  # donc après évaluation de son propre `if:`). Le pattern recommandé par GitHub
+  # pour ce cas exact : un job dédié qui lit le secret dans un step (`secrets` y
+  # est autorisé) et expose le résultat via `outputs:` — lisible, lui, depuis le
+  # `if:` d'un job en aval via le contexte `needs`, disponible sans ambiguïté.
+  # Ne s'exécute que sur workflow_dispatch : inutile de le lancer sur push/PR
+  # puisque integration-tests ne se déclenche de toute façon jamais hors de ce
+  # cas (condition strictement inchangée par rapport à l'original).
+  # ─────────────────────────────────────────────
+  check-secrets:
+    name: Check integration secrets
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    outputs:
+      has_stripe_key: ${{ steps.check.outputs.has_stripe_key }}
+    steps:
+      - name: Check Stripe secret presence
+        id: check
+        run: echo "has_stripe_key=${{ secrets.STRIPE_SECRET_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
   # Job — Tests d'intégration + E2E réel (sandboxes réelles : Stripe/Amoy/MTN)
   # Déclenché manuellement (workflow_dispatch) et uniquement si le secret Stripe
   # existe. Hors du pipeline bloquant : n'est pas dans `needs:` du job build.
@@ -148,7 +173,8 @@ jobs:
   integration-tests:
     name: Integration & E2E-real tests (sandboxes réelles)
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' && secrets.STRIPE_SECRET_KEY != '' }}
+    needs: [check-secrets]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.check-secrets.outputs.has_stripe_key == 'true' }}
 
     services:
       postgres:
