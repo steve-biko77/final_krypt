@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
+    "drf_spectacular",
     "contexts.identity",
     "contexts.compliance",
     "contexts.transfer",
@@ -81,6 +82,12 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
         "rest_framework.parsers.FormParser",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "KRYPT API",
+    "VERSION": "1.0.0",
 }
 
 SIMPLE_JWT = {

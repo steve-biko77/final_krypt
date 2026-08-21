@@ -39,3 +39,7 @@ backend/.env
 backend/celerybeat-schedule*
 
 utilisateur.txt
+
+backend/schema.yaml
+
+schema_complet.sql

@@ -1,4 +1,5 @@
 from django.urls import include, path
+from drf_spectacular.views import SpectacularAPIView
 
 from contexts.compliance.adapters.api.admin_stats_views import AdminStatsView
 
@@ -9,4 +10,5 @@ urlpatterns = [
     path("api/admin/aml/", include("contexts.compliance.adapters.api.admin_aml_urls")),
     path("api/admin/stats", AdminStatsView.as_view()),
     path("api/transfer/", include("contexts.transfer.adapters.api.urls")),
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
 ]
