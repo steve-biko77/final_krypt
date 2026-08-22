@@ -460,7 +460,14 @@ class AMLResubmitDocsTests(APITestCase):
             AMLSupportingDocumentModel.objects.filter(transaction_id=str(txn.id)).exists()
         )
 
-    def test_resubmit_rejected_when_not_awaiting_docs(self):
+    # AMLResubmitDocsView instancie MinIOStorageService() en argument du use
+    # case AVANT que celui-ci ne vérifie le statut du transfert (constructeur
+    # "eager" : MinIOStorageService.__init__ appelle _ensure_bucket(), donc une
+    # vraie connexion réseau, dès l'instanciation) — ce test attend un rejet
+    # 400 sur le statut, jamais un vrai accès au stockage, d'où le mock, même
+    # pattern que test_resubmit_transitions_back_to_pending_review ci-dessus.
+    @patch('contexts.compliance.adapters.storage.minio_storage_service.MinIOStorageService')
+    def test_resubmit_rejected_when_not_awaiting_docs(self, mock_storage_cls):
         from contexts.transfer.models import TransactionModel
         txn = TransactionModel.objects.create(
             sender_id=uuid.UUID(self.user_id),
