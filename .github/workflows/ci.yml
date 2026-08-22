@@ -68,6 +68,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Broker Celery — CELERY_TASK_ALWAYS_EAGER n'existe pas comme mécanisme
+      # global dans ce projet (aucune variable d'environnement ne le pilote ;
+      # seuls 2 tests de contexts/compliance/tests.py l'activent ponctuellement
+      # via @override_settings). En local, les tests passent parce qu'un vrai
+      # Redis tourne déjà via `docker-compose up` (voir docker-compose.yml) —
+      # rien de tel en CI, d'où `redis.exceptions.ConnectionError` dès qu'un
+      # test déclenche .delay() sans le mocker (ex: inscription -> notification_task
+      # .delay() dans contexts/identity/adapters/api/views.py). Même pattern que
+      # le service postgres ci-dessus.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +113,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
@@ -114,6 +133,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
@@ -190,6 +210,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Cf. commentaire du service redis du job "test" — même cause, même
+      # correctif (services indépendants par job, pas partagés entre jobs).
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -216,6 +247,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
@@ -240,6 +272,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
