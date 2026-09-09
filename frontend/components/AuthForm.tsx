@@ -8,11 +8,18 @@ import { useForm } from 'react-hook-form'
 import * as z from 'zod'
 import { Button } from '@/components/ui/button'
 import { Form } from '@/components/ui/form'
+import dynamic from 'next/dynamic'
 import CustomInput from './CustomInput'
+import PasswordStrengthMeter from './PasswordStrengthMeter'
 import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { completeTwoFactorSignIn, signIn, signUp } from '@/lib/actions/user.actions'
 import { authFormSchema } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
+
+// Chargé à la demande : cet écran de bienvenue est le seul à tirer
+// framer-motion dans AuthForm, et il ne sert qu'après une inscription réussie
+// — un import statique alourdirait aussi /sign-in, qui ne l'affiche jamais.
+const SignUpSuccessOverlay = dynamic(() => import('./SignUpSuccessOverlay'), { ssr: false })
 
 // Tableau de bord admin — redirection automatique UNIQUEMENT juste après une
 // connexion réussie (pas à chaque chargement de "/", cf. app/(root)/page.tsx)
@@ -40,6 +47,11 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Touche démo (cosmétique) — écran de bienvenue intercalé APRÈS une
+  // inscription déjà réussie : seule la redirection est différée, la création
+  // de compte elle-même est inchangée.
+  const [signUpSucceeded, setSignUpSucceeded] = useState(false)
 
   // 2FA intermediate state
   const [twoFaStep, setTwoFaStep] = useState(false)
@@ -72,7 +84,9 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
           lastName: data.lastName!,
           phone: data.phone ?? '',
         })
-        router.push('/')
+        // La redirection est déclenchée par SignUpSuccessOverlay (délai court
+        // ou clic sur "Continuer"), pas ici.
+        setSignUpSucceeded(true)
       }
 
       if (type === 'sign-in') {
@@ -105,6 +119,10 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (signUpSucceeded) {
+    return <SignUpSuccessOverlay onContinue={() => router.push('/')} />
   }
 
   if (twoFaStep) {
@@ -239,6 +257,12 @@ const AuthForm = ({ type }: { type: 'sign-in' | 'sign-up' }) => {
               label='Mot de passe'
               placeholder='8 caractères minimum'
             />
+
+            {/* Touche démo (cosmétique) — retour visuel seul, à l'inscription :
+                aucune règle de validation n'est ajoutée (ni zod, ni serveur). */}
+            {type === 'sign-up' && (
+              <PasswordStrengthMeter password={form.watch('password') ?? ''} />
+            )}
 
             {error && <FormErrorBanner message={error} />}
 

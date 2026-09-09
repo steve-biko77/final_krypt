@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import AmountConverter from '@/components/AmountConverter'
+import MobileOnboardingCarousel from '@/components/MobileOnboardingCarousel'
 
 const STEPS = [
   {
@@ -44,7 +45,19 @@ const STEPS = [
 export default function LandingPage() {
   return (
     <div className="min-h-screen w-full bg-white">
-      <header className="flex items-center justify-between px-5 sm:px-8 py-5 max-w-6xl mx-auto">
+      {/* Touche démo (cosmétique) — sous md uniquement : un carrousel
+          d'introduction occupe le premier écran, avec ses propres liens
+          "Créer un compte" / "Connexion" ; l'en-tête ci-dessous est donc
+          masquée sous md pour ne pas doubler ces actions. Le reste de la
+          landing (convertisseur, "Comment ça marche", indicateurs de
+          confiance) reste accessible en dessous. À partir de md, RIEN ne
+          change : le carrousel n'est pas rendu et l'en-tête reprend sa
+          place. */}
+      <div className="md:hidden">
+        <MobileOnboardingCarousel />
+      </div>
+
+      <header className="max-md:hidden flex items-center justify-between px-5 sm:px-8 py-5 max-w-6xl mx-auto">
         <Link href="/" className="flex items-center gap-1.5">
           <Image src="/icons/logo.svg" width={30} height={30} alt="Krypt logo" />
           <span className="text-20 font-ibm-plex-serif font-bold text-black-1">Krypt</span>

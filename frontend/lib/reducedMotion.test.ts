@@ -26,6 +26,10 @@ const TARGETS = [
     label: 'TransferStepper (transition entre les 3 étapes du tunnel)',
     file: join(ROOT, 'app/(root)/(protected)/transfer/TransferStepper.tsx'),
   },
+  {
+    label: "SignUpSuccessOverlay (confettis après création de compte)",
+    file: join(ROOT, 'components/SignUpSuccessOverlay.tsx'),
+  },
 ]
 
 describe('prefers-reduced-motion respecté explicitement (framer-motion)', () => {
