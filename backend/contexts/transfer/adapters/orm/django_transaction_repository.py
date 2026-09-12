@@ -35,6 +35,15 @@ class DjangoORMTransactionRepository:
         except (TransactionModel.DoesNotExist, ValueError):
             return None
 
+    def find_by_sender(self, sender_id: str, limit: int = 5) -> list[Transaction]:
+        """Refonte frontend (partie 3/4) — transferts récents d'un émetteur
+        (tableau de bord), triés par ``-created_at`` (déjà l'ordre par défaut du
+        modèle, explicité ici pour ne pas dépendre du Meta.ordering)."""
+        qs = TransactionModel.objects.filter(
+            sender_id=uuid.UUID(sender_id)
+        ).order_by("-created_at")[:limit]
+        return [self._to_entity(obj) for obj in qs]
+
     def find_by_payment_intent_id(
         self, payment_intent_id: str
     ) -> Optional[Transaction]:

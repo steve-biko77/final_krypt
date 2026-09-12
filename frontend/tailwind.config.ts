@@ -1,4 +1,5 @@
     import type { Config } from "tailwindcss";
+    import tailwindcssAnimate from "tailwindcss-animate";
 
     const config: Config = {
         darkMode: ["class"],
@@ -69,7 +70,13 @@
                 },
                 fontSize: {
                     "10": ["10px", "14px"],
+                    "11": ["11px", "16px"],
                     "12": ["12px", "16px"],
+                    // Refonte frontend (partie 2/4) — "13" manquait de la palette alors
+                    // que "text-13" est déjà utilisé dans une quinzaine de fichiers
+                    // existants (jamais stylé jusqu'ici, faute de token défini) : ajout
+                    // purement additif, corrige ces usages sans rien changer d'autre.
+                    "13": ["13px", "18px"],
                     "14": ["14px", "20px"],
                     "16": ["16px", "24px"],
                     "18": ["18px", "22px"],
@@ -93,6 +100,17 @@
                 fontFamily: {
                     inter: "var(--font-inter)",
                     "ibm-plex-serif": "var(--font-ibm-plex-serif)",
+                    // Refonte frontend (partie 1/4) — font-heading (titres) et font-mono
+                    // (montants/chiffres/timestamps, tabular-nums) : voir app/layout.tsx.
+                    // font-mono remplace volontairement la pile monospace système par
+                    // défaut de Tailwind : déjà utilisé pour les hash on-chain (font-mono
+                    // existant dans TransferTimeline etc.), qui bénéficient donc aussi du
+                    // registre "financier fiable" sans changement de leur code.
+                    heading: ["var(--font-plus-jakarta-sans)", "sans-serif"],
+                    mono: ["var(--font-ibm-plex-mono)", "monospace"],
+                },
+                letterSpacing: {
+                    heading: "-0.01em",
                 },
                 keyframes: {
                     "accordion-down": {
@@ -108,15 +126,25 @@
                         "0%, 100%": { opacity: "1" },
                         "50%": { opacity: "0.35" },
                     },
+                    // Refonte frontend (partie 1/4) — pointillés défilants du segment
+                    // parcouru de TransferRouteIndicator (mode actif uniquement).
+                    "route-dash": {
+                        to: { strokeDashoffset: "-14" },
+                    },
                 },
                 animation: {
                     "accordion-down": "accordion-down 0.2s ease-out",
                     "accordion-up": "accordion-up 0.2s ease-out",
                     "timeline-pulse": "timeline-pulse 1.6s ease-in-out infinite",
+                    "route-dash": "route-dash 900ms linear infinite",
                 },
             },
         },
-        plugins: [], // ← Plus de tailwindcss-animate ici
+        // Correctif shadcn/ui (vraie intégration Radix) — Dialog/Sheet/DropdownMenu/
+        // Tooltip animent leur ouverture/fermeture via les classes data-[state=open]:
+        // animate-in / fade-in-0 / zoom-in-95 etc. générées par ce plugin. Sans lui,
+        // ces transitions ne produisaient AUCUNE animation (classes inexistantes).
+        plugins: [tailwindcssAnimate],
     };
 
     export default config;

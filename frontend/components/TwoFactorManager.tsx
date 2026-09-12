@@ -2,8 +2,9 @@
 
 import { useTransition, useState } from 'react'
 import Image from 'next/image'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Loader2, ShieldCheck, ShieldOff, Copy, CheckCircle } from 'lucide-react'
+import { AlertTriangle, Loader2, ShieldCheck, ShieldOff, Copy, CheckCircle } from 'lucide-react'
 import { setup2FA, verify2FA, disable2FA, type TwoFASetupData } from '@/lib/actions/twofa.actions'
 
 type Step =
@@ -28,6 +29,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
   const copySecret = (secret: string) => {
     navigator.clipboard.writeText(secret)
     setCopied(true)
+    toast.success('Code copié dans le presse-papiers')
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -51,6 +53,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
         setTotpCode('')
         setStep({ type: 'codes', codes: recovery_codes })
         setEnabled(true)
+        toast.success('2FA activée')
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Code invalide')
       }
@@ -73,31 +76,49 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
 
   if (step.type === 'codes') {
     return (
-      <div className="flex flex-col gap-6 p-6 rounded-xl border border-green-200 bg-green-50">
-        <div className="flex items-center gap-3">
-          <CheckCircle size={24} className="text-green-600" />
-          <h2 className="text-18 font-semibold text-green-900">
-            2FA activée avec succès
-          </h2>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
+          <CheckCircle size={20} className="text-green-600 shrink-0" aria-hidden="true" />
+          <p className="text-14 font-semibold text-green-900">2FA activée avec succès</p>
         </div>
-        <div className="flex flex-col gap-3">
-          <p className="text-14 font-semibold text-gray-800">
-            Codes de récupération — notez-les maintenant, ils ne seront plus affichés.
+
+        {/* Traitement volontairement sérieux (pas le ton chaleureux habituel de
+            l'app) : contenu affiché une seule fois, à conserver précieusement. */}
+        <div className="flex flex-col gap-4 rounded-xl border border-black-1 bg-black-1 p-5 sm:p-6">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-400 shrink-0" aria-hidden="true" />
+            <h2 className="font-heading tracking-heading text-16 font-bold text-white">
+              Codes de récupération
+            </h2>
+          </div>
+          <p className="text-13 text-gray-300">
+            Notez-les et conservez-les dans un endroit sûr. Chaque code n&apos;est utilisable
+            qu&apos;une seule fois, et cette liste ne sera{' '}
+            <span className="font-semibold text-white">plus jamais affichée</span>.
           </p>
-          <div className="grid grid-cols-2 gap-2">
-            {step.codes.map((code) => (
-              <code
+          {/* Codes au format "XXXX-XXXX-XXXX-XXXX" (19 caractères) : une seule
+              colonne sous sm pour éviter tout débordement/retour à la ligne
+              à 375px (voir contexts/identity/adapters/services/pyotp_service.py). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {step.codes.map((code, i) => (
+              <div
                 key={code}
-                className="font-mono text-13 bg-white border border-green-200 rounded px-3 py-2 text-center"
+                className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5"
               >
-                {code}
-              </code>
+                <span className="text-10 font-mono tabular-nums text-gray-400">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <code className="font-mono text-13 tabular-nums text-white">{code}</code>
+              </div>
             ))}
           </div>
         </div>
+
         <Button
           onClick={() => setStep({ type: 'idle' })}
-          className="form-btn"
+          variant="brand"
+          size="lg"
+          className="w-fit"
         >
           {"J'ai noté mes codes"}
         </Button>
@@ -109,7 +130,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
     return (
       <div className="flex flex-col gap-6">
         <div className="flex items-start gap-4 p-5 rounded-xl border border-gray-200 bg-gray-50">
-          <ShieldOff size={24} className="text-gray-400 shrink-0 mt-0.5" />
+          <ShieldOff size={24} className="text-gray-400 shrink-0 mt-0.5" aria-hidden="true" />
           <div>
             <p className="text-16 font-semibold text-gray-900">
               2FA désactivée
@@ -122,10 +143,10 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
         </div>
 
         {step.type === 'idle' && (
-          <Button onClick={handleSetup} disabled={isPending} className="form-btn w-fit">
+          <Button onClick={handleSetup} variant="brand" size="lg" disabled={isPending} className="w-fit">
             {isPending ? (
               <>
-                <Loader2 size={18} className="animate-spin mr-2" />
+                <Loader2 size={18} className="animate-spin" />
                 Génération...
               </>
             ) : (
@@ -135,34 +156,33 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
         )}
 
         {step.type === 'setup' && (
-          <div className="flex flex-col gap-6 p-6 rounded-xl border border-blue-200 bg-blue-50">
-            <h2 className="text-16 font-semibold text-blue-900">
+          <div className="flex flex-col gap-6 p-6 rounded-xl border border-black-1 bg-black-1">
+            <h2 className="font-heading tracking-heading text-16 font-bold text-white">
               Étape 1 — Scannez le QR code
             </h2>
-            <div className="flex justify-center">
+            <div className="flex justify-center rounded-lg bg-white p-4">
               <Image
                 src={`data:image/png;base64,${step.data.qr_image}`}
                 alt="QR code 2FA"
                 width={200}
                 height={200}
-                className="rounded-lg border border-blue-200"
               />
             </div>
             <div className="flex items-center gap-2">
-              <p className="text-12 text-gray-600 font-mono flex-1 break-all">
+              <p className="text-12 text-gray-300 font-mono flex-1 break-all">
                 {step.data.secret}
               </p>
               <button
                 type="button"
                 onClick={() => copySecret(step.data.secret)}
-                className="text-blue-600 hover:text-blue-800"
+                className="flex items-center justify-center size-11 shrink-0 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
                 title="Copier"
               >
                 {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
               </button>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-14 font-medium text-gray-700">
+              <label className="text-14 font-medium text-gray-200">
                 Étape 2 — Entrez le code généré par votre application
               </label>
               <input
@@ -172,21 +192,26 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
                 placeholder="123456"
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value.trim())}
-                className="input-class h-10 px-3 rounded-md border border-gray-300 text-center text-20 font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-11 px-3 rounded-lg border border-white/20 bg-white/5 text-center text-20 font-mono tabular-nums tracking-widest text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             {error && (
-              <p className="text-14 text-red-500 font-medium">{error}</p>
+              <div className="flex items-start gap-2 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2.5">
+                <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" aria-hidden="true" />
+                <p className="text-13 font-medium text-red-300">{error}</p>
+              </div>
             )}
             <div className="flex gap-3">
               <Button
                 onClick={handleVerify}
+                variant="brand"
+                size="lg"
                 disabled={isPending || totpCode.length < 6}
-                className="form-btn flex-1"
+                className="flex-1"
               >
                 {isPending ? (
                   <>
-                    <Loader2 size={18} className="animate-spin mr-2" />
+                    <Loader2 size={18} className="animate-spin" />
                     Vérification...
                   </>
                 ) : (
@@ -195,6 +220,8 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
               </Button>
               <Button
                 variant="outline"
+                size="lg"
+                className="bg-transparent text-white border-white/20 hover:bg-white/10 hover:text-white"
                 onClick={() => { setStep({ type: 'idle' }); setError(null); setTotpCode('') }}
               >
                 Annuler
@@ -210,7 +237,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start gap-4 p-5 rounded-xl border border-green-200 bg-green-50">
-        <ShieldCheck size={24} className="text-green-600 shrink-0 mt-0.5" />
+        <ShieldCheck size={24} className="text-green-600 shrink-0 mt-0.5" aria-hidden="true" />
         <div>
           <p className="text-16 font-semibold text-gray-900">2FA activée</p>
           <p className="text-14 text-gray-500 mt-1">
@@ -222,6 +249,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
       {step.type === 'idle' && (
         <Button
           variant="outline"
+          size="lg"
           onClick={() => { setStep({ type: 'disabling' }); setError(null) }}
           className="w-fit text-red-600 border-red-200 hover:bg-red-50"
         >
@@ -241,7 +269,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
             placeholder="123456"
             value={totpCode}
             onChange={(e) => setTotpCode(e.target.value.trim())}
-            className="input-class h-10 px-3 rounded-md border border-red-200 text-center text-20 font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="input-class h-11 px-3 rounded-lg border border-red-200 text-center text-20 font-mono tabular-nums tracking-widest focus:outline-none focus:ring-2 focus:ring-red-400"
           />
           {error && (
             <p className="text-14 text-red-600 font-medium">{error}</p>
@@ -249,12 +277,13 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
           <div className="flex gap-3">
             <Button
               onClick={handleDisable}
+              size="lg"
               disabled={isPending || totpCode.length < 6}
               className="flex-1 bg-red-600 hover:bg-red-700 text-white"
             >
               {isPending ? (
                 <>
-                  <Loader2 size={18} className="animate-spin mr-2" />
+                  <Loader2 size={18} className="animate-spin" />
                   Désactivation...
                 </>
               ) : (
@@ -263,6 +292,7 @@ const TwoFactorManager = ({ is2faEnabled }: Props) => {
             </Button>
             <Button
               variant="outline"
+              size="lg"
               onClick={() => { setStep({ type: 'idle' }); setError(null); setTotpCode('') }}
             >
               Annuler

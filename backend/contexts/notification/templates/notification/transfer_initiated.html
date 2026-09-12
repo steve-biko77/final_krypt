@@ -1,4 +1,5 @@
 {% extends "notification/_base_email.html" %}
+{% load email_extras %}
 {% block title %}Votre transfert KRYPT est en cours{% endblock %}
 {% block content %}
 <h1 style="margin:0 0 16px;font-size:22px;color:#00214F;">Transfert en cours</h1>
@@ -6,14 +7,14 @@
   Bonjour {{ recipient_name }}, votre transfert vers {{ beneficiary_name }} a bien
   été enregistré et est en cours de traitement.
 </p>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;border:1px solid #EAECF0;border-radius:8px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;border:1px solid #EAECF0;border-radius:8px;background-color:#FCFCFD;">
   <tr>
-    <td style="padding:16px 16px 8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#667085;">Montant envoyé</td>
-    <td style="padding:16px 16px 8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#101828;font-weight:bold;text-align:right;">{{ amount_eur }} EUR</td>
+    <td style="padding:16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#667085;">Montant envoyé</td>
+    <td style="padding:16px;font-family:'Courier New',Courier,monospace;font-size:15px;color:#101828;font-weight:bold;text-align:right;">{{ amount_eur|format_eur }} EUR</td>
   </tr>
   <tr>
-    <td style="padding:0 16px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#667085;">Bénéficiaire</td>
-    <td style="padding:0 16px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#101828;font-weight:bold;text-align:right;">{{ beneficiary_name }}</td>
+    <td style="padding:16px;border-top:1px solid #EAECF0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#667085;">Bénéficiaire</td>
+    <td style="padding:16px;border-top:1px solid #EAECF0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#101828;font-weight:bold;text-align:right;">{{ beneficiary_name }}</td>
   </tr>
 </table>
 {% include "notification/_cta_button.html" with cta_label="Suivre mon transfert" %}

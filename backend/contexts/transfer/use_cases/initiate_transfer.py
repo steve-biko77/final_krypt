@@ -45,11 +45,16 @@ class InitiateTransferUseCase:
         payment_service: PaymentServicePort,
         aml_use_case: ScoreAMLUseCase,
         transaction_repo,
+        beneficiary_repo=None,
     ):
         self._exchange_rate_service = exchange_rate_service
         self._payment_service = payment_service
         self._aml_use_case = aml_use_case
         self._transaction_repo = transaction_repo
+        # Optionnel (défaut None) — carnet de contacts, cf. _touch_saved_beneficiary
+        # ci-dessous. Reste optionnel pour ne rien changer aux appels existants
+        # qui construisent ce use case sans cette dépendance (tests notamment).
+        self._beneficiary_repo = beneficiary_repo
 
     def execute(self, data: InitiateTransferInput) -> InitiateTransferResult:
         # Reuse the simulation use case for fee/amount computation + min/max validation.
@@ -71,6 +76,7 @@ class InitiateTransferUseCase:
             status=TransactionStatus.PENDING_AML,
         )
         transaction = self._transaction_repo.save(transaction)
+        self._touch_saved_beneficiary(data.sender_id, data.momo_number)
 
         # Run AML scoring BEFORE ever touching Stripe.
         aml_result = self._aml_use_case.execute(
@@ -129,6 +135,24 @@ class InitiateTransferUseCase:
         return InitiateTransferResult(
             transaction=saved, client_secret=intent.client_secret
         )
+
+    def _touch_saved_beneficiary(self, sender_id: str, momo_number: str) -> None:
+        """Carnet de contacts — si ce transfert correspond (même numéro) à un
+        bénéficiaire déjà enregistré par cet utilisateur, met à jour sa date de
+        dernière utilisation, sans dupliquer l'entrée. Best-effort et non
+        bloquant : une erreur ici ne doit jamais empêcher l'envoi d'argent."""
+        if self._beneficiary_repo is None:
+            return
+        try:
+            matching = self._beneficiary_repo.find_by_momo_number(sender_id, momo_number)
+            if matching:
+                self._beneficiary_repo.mark_used(matching.id)
+        except Exception:
+            logger.warning(
+                "initiate_transfer: échec de la mise à jour last_used_at du "
+                "bénéficiaire enregistré pour l'émetteur %s — non bloquant.",
+                sender_id,
+            )
 
     def _guarded_transition(self, transaction: Transaction) -> Optional[Transaction]:
         """KRYP-28 point d'attention 2 — écrit le nouveau statut uniquement si la

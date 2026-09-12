@@ -97,7 +97,7 @@ const KYCBanner = ({ kycStatus }: KYCBannerProps) => {
         </div>
         <Link
           href="/kyc"
-          className="text-14 font-semibold text-blue-700 underline whitespace-nowrap"
+          className="text-14 font-semibold text-blue-700 underline whitespace-nowrap max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:self-center"
         >
           Vérifier →
         </Link>
@@ -113,7 +113,10 @@ const KYCBanner = ({ kycStatus }: KYCBannerProps) => {
         <p className="text-12 text-gray-600 mt-0.5">{config.text}</p>
       </div>
       {config.showLink && (
-        <Link href="/kyc" className="text-14 font-semibold text-blue-700 underline whitespace-nowrap">
+        <Link
+          href="/kyc"
+          className="text-14 font-semibold text-blue-700 underline whitespace-nowrap max-md:inline-flex max-md:min-h-11 max-md:items-center max-md:self-center"
+        >
           Resoumettre →
         </Link>
       )}

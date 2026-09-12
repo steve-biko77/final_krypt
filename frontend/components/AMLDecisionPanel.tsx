@@ -2,13 +2,23 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, AlertCircle, XCircle, ArrowUpCircle, X, FileText } from 'lucide-react'
+import { CheckCircle, AlertCircle, XCircle, ArrowUpCircle, FileText } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   decideAMLReview,
   getAdminAMLDetail,
   requestAMLDocs,
   type AdminAMLDetail,
 } from '@/lib/actions/admin-aml.actions'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface AMLDecisionPanelProps {
   transferId: string
@@ -39,10 +49,13 @@ export default function AMLDecisionPanel({ transferId, onClose, onDecided }: AML
       try {
         await decideAMLReview(transferId, action, motif)
         router.refresh()
+        toast.success('Décision enregistrée')
         onDecided()
         onClose()
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Une erreur est survenue.')
+        const message = e instanceof Error ? e.message : 'Une erreur est survenue.'
+        setError(message)
+        toast.error('Échec de la décision', { description: message })
       }
     })
   }
@@ -53,29 +66,31 @@ export default function AMLDecisionPanel({ transferId, onClose, onDecided }: AML
       try {
         await requestAMLDocs(transferId)
         router.refresh()
+        toast.success('Documents complémentaires demandés')
         onDecided()
         onClose()
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Une erreur est survenue.')
+        const message = e instanceof Error ? e.message : 'Une erreur est survenue.'
+        setError(message)
+        toast.error('Échec de la demande', { description: message })
       }
     })
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6 relative max-h-[90vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-          aria-label="Fermer"
-        >
-          <X size={20} />
-        </button>
-
-        <h2 className="text-18 font-bold text-gray-900 mb-4">Revue AML</h2>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Revue AML</DialogTitle>
+        </DialogHeader>
 
         {!detail ? (
-          <p className="text-14 text-gray-400 py-8 text-center">Chargement…</p>
+          <div className="space-y-3 py-2" aria-busy="true" aria-label="Chargement">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-24 w-full rounded-lg" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
         ) : (
           <>
             <div className="space-y-3 mb-5">
@@ -84,7 +99,9 @@ export default function AMLDecisionPanel({ transferId, onClose, onDecided }: AML
                 <span className="font-medium text-gray-900">
                   {detail.sender_email ?? '—'}
                   {detail.sender_is_kyc_verified === false && (
-                    <span className="ml-2 text-12 text-orange-600">KYC non vérifié</span>
+                    <Badge variant="warning" className="ml-2">
+                      KYC non vérifié
+                    </Badge>
                   )}
                 </span>
               </div>
@@ -114,9 +131,11 @@ export default function AMLDecisionPanel({ transferId, onClose, onDecided }: AML
                   </div>
                   <div className="flex justify-between text-14">
                     <span className="text-gray-500">Résultat OFAC</span>
-                    <span className="font-medium text-gray-900">
-                      {detail.aml.ofac_match ? 'Match' : 'Aucun'}
-                    </span>
+                    {detail.aml.ofac_match ? (
+                      <Badge variant="destructive">Match</Badge>
+                    ) : (
+                      <Badge variant="secondary">Aucun</Badge>
+                    )}
                   </div>
                   <div className="flex justify-between text-14">
                     <span className="text-gray-500">Règles déclenchées</span>
@@ -185,42 +204,48 @@ export default function AMLDecisionPanel({ transferId, onClose, onDecided }: AML
             )}
 
             <div className="flex gap-2 mb-2">
-              <button
+              <Button
+                type="button"
                 onClick={() => handleDecision('approve')}
                 disabled={isPending}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-600 text-white text-14 font-semibold hover:bg-green-700 disabled:opacity-50 transition"
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
               >
                 <CheckCircle size={16} />
                 Approuver
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
                 onClick={() => handleDecision('escalate')}
                 disabled={isPending}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-orange-500 text-white text-14 font-semibold hover:bg-orange-600 disabled:opacity-50 transition"
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white"
               >
                 <ArrowUpCircle size={16} />
                 Escalader
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
                 onClick={() => handleDecision('reject')}
                 disabled={isPending}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 text-white text-14 font-semibold hover:bg-red-700 disabled:opacity-50 transition"
+                variant="destructive"
+                className="flex-1"
               >
                 <XCircle size={16} />
                 Rejeter
-              </button>
+              </Button>
             </div>
-            <button
+            <Button
+              type="button"
               onClick={handleRequestDocs}
               disabled={isPending}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-gray-300 text-gray-700 text-14 font-semibold hover:bg-gray-50 disabled:opacity-50 transition"
+              variant="outline"
+              className="w-full"
             >
               <FileText size={16} />
               Demander des documents complémentaires
-            </button>
+            </Button>
           </>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -68,6 +68,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Broker Celery — CELERY_TASK_ALWAYS_EAGER n'existe pas comme mécanisme
+      # global dans ce projet (aucune variable d'environnement ne le pilote ;
+      # seuls 2 tests de contexts/compliance/tests.py l'activent ponctuellement
+      # via @override_settings). En local, les tests passent parce qu'un vrai
+      # Redis tourne déjà via `docker-compose up` (voir docker-compose.yml) —
+      # rien de tel en CI, d'où `redis.exceptions.ConnectionError` dès qu'un
+      # test déclenche .delay() sans le mocker (ex: inscription -> notification_task
+      # .delay() dans contexts/identity/adapters/api/views.py). Même pattern que
+      # le service postgres ci-dessus.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +113,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
@@ -114,6 +133,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
@@ -135,6 +155,31 @@ jobs:
         working-directory: frontend
 
   # ─────────────────────────────────────────────
+  # Job — Vérifie la présence du secret Stripe, pour gater integration-tests.
+  # Correctif : `secrets` n'est pas utilisable directement dans un `if:` de job
+  # (restriction de la plateforme, erreur "Unrecognized named-value: 'secrets'"
+  # sinon) — et le contexte `env` d'un job n'est pas non plus disponible dans le
+  # `if:` de CE MÊME job (peuplé seulement une fois le job effectivement démarré,
+  # donc après évaluation de son propre `if:`). Le pattern recommandé par GitHub
+  # pour ce cas exact : un job dédié qui lit le secret dans un step (`secrets` y
+  # est autorisé) et expose le résultat via `outputs:` — lisible, lui, depuis le
+  # `if:` d'un job en aval via le contexte `needs`, disponible sans ambiguïté.
+  # Ne s'exécute que sur workflow_dispatch : inutile de le lancer sur push/PR
+  # puisque integration-tests ne se déclenche de toute façon jamais hors de ce
+  # cas (condition strictement inchangée par rapport à l'original).
+  # ─────────────────────────────────────────────
+  check-secrets:
+    name: Check integration secrets
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    outputs:
+      has_stripe_key: ${{ steps.check.outputs.has_stripe_key }}
+    steps:
+      - name: Check Stripe secret presence
+        id: check
+        run: echo "has_stripe_key=${{ secrets.STRIPE_SECRET_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
   # Job — Tests d'intégration + E2E réel (sandboxes réelles : Stripe/Amoy/MTN)
   # Déclenché manuellement (workflow_dispatch) et uniquement si le secret Stripe
   # existe. Hors du pipeline bloquant : n'est pas dans `needs:` du job build.
@@ -148,7 +193,8 @@ jobs:
   integration-tests:
     name: Integration & E2E-real tests (sandboxes réelles)
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' && secrets.STRIPE_SECRET_KEY != '' }}
+    needs: [check-secrets]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.check-secrets.outputs.has_stripe_key == 'true' }}
 
     services:
       postgres:
@@ -161,6 +207,17 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # Cf. commentaire du service redis du job "test" — même cause, même
+      # correctif (services indépendants par job, pas partagés entre jobs).
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -190,6 +247,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret
@@ -214,6 +272,7 @@ jobs:
           DB_PASSWORD: krypt_secret
           DB_HOST: localhost
           DB_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
           MINIO_ENDPOINT: localhost:9000
           MINIO_ACCESS_KEY: ci_minio_key
           MINIO_SECRET_KEY: ci_minio_secret

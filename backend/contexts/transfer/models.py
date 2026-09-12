@@ -69,3 +69,36 @@ class TransactionModel(models.Model):
 
     def __str__(self):
         return f"Transaction({self.id}, {self.status}, {self.amount_eur} EUR)"
+
+
+class SavedBeneficiaryModel(models.Model):
+    """Carnet de contacts — bénéficiaire enregistré par un utilisateur (opt-in
+    explicite, jamais de sauvegarde automatique silencieuse)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="saved_beneficiaries",
+    )
+    beneficiary_name = models.CharField(max_length=200)
+    beneficiary_country = models.CharField(max_length=2)
+    momo_number = models.CharField(max_length=30)
+    operator = models.CharField(max_length=20, choices=Operator.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Nul tant que jamais réutilisé depuis l'enregistrement — cf.
+    # initiate_transfer (mis à jour si le transfert correspond, par numéro, à
+    # une entrée déjà enregistrée), jamais renseigné à la création.
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "transfer"
+        db_table = "transfer_saved_beneficiaries"
+        # Tri réel (nulls_last) fait dans le repository via une expression F() —
+        # Meta.ordering ne sert ici que de filet de sécurité par défaut, les
+        # NULL de last_used_at se retrouveraient sinon en tête sous Postgres
+        # (NULLS FIRST par défaut en DESC), l'inverse de ce qui est voulu.
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"SavedBeneficiary({self.beneficiary_name}, {self.momo_number})"

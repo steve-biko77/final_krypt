@@ -62,7 +62,7 @@ const KYCUploadForm = ({ onSuccess }: KYCUploadFormProps) => {
         <select
           name="document_type"
           required
-          className="input-class h-10 px-3 rounded-md border border-gray-300 bg-white text-14 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="input-class h-10 max-md:h-11 px-3 rounded-md border border-gray-300 bg-white text-14 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">Sélectionnez un type</option>
           {DOCUMENT_TYPES.map((dt) => (

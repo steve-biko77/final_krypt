@@ -85,3 +85,5 @@ cellules de chargement.
    `<A_REMPLIR_APRES_EXECUTION>` par les valeurs réelles de `metrics.json`
    (le rapport est un modèle et ne contient volontairement aucun chiffre inventé).
 3. Les figures PNG de `reports/` peuvent être insérées directement dans le mémoire.
+
+

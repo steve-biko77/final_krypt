@@ -1,8 +1,10 @@
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import stripe
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
@@ -10,6 +12,7 @@ REGISTER_URL = '/api/auth/register'
 SIMULATE_URL = '/api/transfer/simulate'
 INITIATE_URL = '/api/transfer/initiate'
 WEBHOOK_URL = '/api/transfer/stripe/webhook'
+BENEFICIARIES_URL = '/api/transfer/beneficiaries'
 
 _USER = {
     'email': 'transfer@krypt.fr',
@@ -161,6 +164,57 @@ class InitiateTransferTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(res.data['error'], 'KYC_NOT_VERIFIED')
         mock_create.assert_not_called()
+
+    @patch('stripe.PaymentIntent.create')
+    def test_initiate_transfer_touches_matching_saved_beneficiary(self, mock_create):
+        """Carnet de contacts — un transfert vers un numéro déjà enregistré met
+        à jour last_used_at de cette entrée, sans en créer une seconde."""
+        from contexts.transfer.models import SavedBeneficiaryModel
+
+        mock_create.return_value = _mock_intent()
+        beneficiary = self.client.post(
+            BENEFICIARIES_URL,
+            {
+                'beneficiary_name': 'Jean Mbarga',
+                'beneficiary_country': 'CM',
+                'momo_number': '+237699000002',
+                'operator': 'MTN_MOMO',
+            },
+            format='json',
+        ).data
+        self.assertIsNone(beneficiary['last_used_at'])
+
+        res = self.client.post(INITIATE_URL, self._payload(50), format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(SavedBeneficiaryModel.objects.count(), 1, "pas de doublon créé")
+        updated = SavedBeneficiaryModel.objects.get(pk=beneficiary['id'])
+        self.assertIsNotNone(updated.last_used_at)
+
+    @patch('stripe.PaymentIntent.create')
+    def test_initiate_transfer_with_unknown_number_does_not_touch_other_beneficiaries(
+        self, mock_create
+    ):
+        """Un numéro qui ne correspond à aucun bénéficiaire enregistré ne
+        modifie rien (pas de faux positif)."""
+        from contexts.transfer.models import SavedBeneficiaryModel
+
+        mock_create.return_value = _mock_intent()
+        other = self.client.post(
+            BENEFICIARIES_URL,
+            {
+                'beneficiary_name': 'Autre bénéficiaire',
+                'beneficiary_country': 'CM',
+                'momo_number': '+237699999999',
+                'operator': 'ORANGE_MONEY',
+            },
+            format='json',
+        ).data
+
+        self.client.post(INITIATE_URL, self._payload(50), format='json')
+
+        untouched = SavedBeneficiaryModel.objects.get(pk=other['id'])
+        self.assertIsNone(untouched.last_used_at)
 
 
 class StripeWebhookTests(APITestCase):
@@ -937,6 +991,87 @@ class TransferStatusViewTests(APITestCase):
         self.assertIsNone(res.data['batch_tx_hash'])
 
 
+class MyTransfersViewTests(APITestCase):
+    """Refonte frontend (partie 3/4) — GET /api/transfer/mine, liste des
+    transferts récents de l'émetteur connecté pour le tableau de bord. Même
+    forme de payload que /status (_build_transfer_status_payload partagée) :
+    on vérifie ici surtout le tri, la limite et l'isolation par utilisateur."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _create_transaction(self, sender_id=None, **overrides):
+        from contexts.transfer.models import TransactionModel
+        defaults = dict(
+            sender_id=uuid.UUID(sender_id or self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('100.00'),
+            fees_eur=Decimal('1.50'),
+            amount_xaf=Decimal('64611.76'),
+            status='ESCROWED',
+        )
+        defaults.update(overrides)
+        return TransactionModel.objects.create(**defaults)
+
+    def test_mine_returns_only_current_user_transfers_sorted_recent_first(self):
+        from contexts.identity.models import UserModel
+        from contexts.transfer.models import TransactionModel
+
+        # Pas besoin d'un second utilisateur authentifié : seul un sender_id
+        # distinct compte pour vérifier l'isolation par utilisateur.
+        other_user = UserModel.objects.create_user(
+            email='other-sender@krypt.fr', password='Secur3Pass!',
+            first_name='Autre', last_name='Sender', phone='+237699000099',
+        )
+        self._create_transaction(beneficiary_name='Ancien')
+        newest = self._create_transaction(beneficiary_name='Recent')
+        TransactionModel.objects.create(
+            sender_id=other_user.pk,
+            beneficiary_name='Pas le mien',
+            beneficiary_country='CM',
+            momo_number='+237699000003',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('50.00'),
+            fees_eur=Decimal('0.75'),
+            amount_xaf=Decimal('32000.00'),
+            status='DELIVERED',
+        )
+
+        res = self.client.get('/api/transfer/mine')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [r['beneficiary_name'] for r in res.data['results']]
+        self.assertEqual(names, ['Recent', 'Ancien'])
+        self.assertEqual(res.data['results'][0]['transaction_id'], str(newest.id))
+        self.assertNotIn('Pas le mien', names)
+
+    def test_mine_respects_limit_param(self):
+        for _ in range(3):
+            self._create_transaction()
+
+        res = self.client.get('/api/transfer/mine?limit=2')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['count'], 2)
+
+    def test_mine_requires_authentication(self):
+        anon_client = self.client_class()
+        res = anon_client.get('/api/transfer/mine')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_mine_empty_when_no_transfers(self):
+        res = self.client.get('/api/transfer/mine')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['count'], 0)
+        self.assertEqual(res.data['results'], [])
+
+
 class CheckEscrowTimeoutsTaskTests(APITestCase):
     """Job Beat 24h : transferts bloqués en ESCROWED > 24h → refund forcé."""
 
@@ -1205,3 +1340,258 @@ class CancelTransferUseCaseRaceConditionTests(APITestCase):
         # annulation best-effort côté Stripe.
         mock_create.assert_called_once()
         mock_cancel.assert_called_once_with('pi_race_1')
+
+
+class SavedBeneficiaryViewTests(APITestCase):
+    """Carnet de contacts — GET/POST /api/transfer/beneficiaries,
+    DELETE /api/transfer/beneficiaries/<id>. Enregistrement toujours opt-in
+    (jamais déclenché ailleurs que par un POST explicite ici)."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        _set_kyc_verified(self.user_id)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _payload(self, name='Jean Mbarga', number='+237699000002', operator='MTN_MOMO'):
+        return {
+            'beneficiary_name': name,
+            'beneficiary_country': 'CM',
+            'momo_number': number,
+            'operator': operator,
+        }
+
+    def test_create_beneficiary(self):
+        res = self.client.post(BENEFICIARIES_URL, self._payload(), format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['beneficiary_name'], 'Jean Mbarga')
+        self.assertEqual(res.data['momo_number'], '+237699000002')
+        self.assertEqual(res.data['operator'], 'MTN_MOMO')
+        self.assertIsNone(res.data['last_used_at'])
+        self.assertIn('id', res.data)
+
+    def test_create_beneficiary_requires_authentication(self):
+        anon_client = self.client_class()
+        res = anon_client.post(BENEFICIARIES_URL, self._payload(), format='json')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_beneficiary_rejects_invalid_operator(self):
+        res = self.client.post(
+            BENEFICIARIES_URL, self._payload(operator='WAVE'), format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_empty_when_no_beneficiaries(self):
+        res = self.client.get(BENEFICIARIES_URL)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
+
+    def test_list_requires_authentication(self):
+        anon_client = self.client_class()
+        res = anon_client.get(BENEFICIARIES_URL)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_list_sorted_by_last_used_then_created_desc(self):
+        """Les plus récemment UTILISÉS d'abord ; ceux jamais réutilisés
+        (last_used_at NULL) ensuite, par date de création décroissante."""
+        from contexts.transfer.models import SavedBeneficiaryModel
+
+        never_used_older = self.client.post(
+            BENEFICIARIES_URL,
+            self._payload(name='Ancien jamais réutilisé', number='+237699000001'),
+            format='json',
+        ).data
+        never_used_newer = self.client.post(
+            BENEFICIARIES_URL,
+            self._payload(name='Récent jamais réutilisé', number='+237699000002'),
+            format='json',
+        ).data
+        used_long_ago = self.client.post(
+            BENEFICIARIES_URL,
+            self._payload(name='Utilisé il y a longtemps', number='+237699000003'),
+            format='json',
+        ).data
+        used_recently = self.client.post(
+            BENEFICIARIES_URL,
+            self._payload(name='Utilisé récemment', number='+237699000004'),
+            format='json',
+        ).data
+
+        now = timezone.now()
+        SavedBeneficiaryModel.objects.filter(pk=used_long_ago['id']).update(
+            last_used_at=now - timedelta(days=5)
+        )
+        SavedBeneficiaryModel.objects.filter(pk=used_recently['id']).update(
+            last_used_at=now - timedelta(minutes=1)
+        )
+
+        res = self.client.get(BENEFICIARIES_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [b['beneficiary_name'] for b in res.data]
+        self.assertEqual(
+            names,
+            [
+                'Utilisé récemment',
+                'Utilisé il y a longtemps',
+                'Récent jamais réutilisé',
+                'Ancien jamais réutilisé',
+            ],
+        )
+        # évite un avertissement "variable assignée jamais utilisée" tout en
+        # documentant explicitement que ces deux entrées sont bien présentes.
+        self.assertIn(never_used_older['id'], [b['id'] for b in res.data])
+        self.assertIn(never_used_newer['id'], [b['id'] for b in res.data])
+
+    def test_delete_beneficiary(self):
+        created = self.client.post(BENEFICIARIES_URL, self._payload(), format='json').data
+
+        res = self.client.delete(f"{BENEFICIARIES_URL}/{created['id']}")
+
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        res = self.client.get(BENEFICIARIES_URL)
+        self.assertEqual(res.data, [])
+
+    def test_delete_beneficiary_requires_authentication(self):
+        created = self.client.post(BENEFICIARIES_URL, self._payload(), format='json').data
+        anon_client = self.client_class()
+        res = anon_client.delete(f"{BENEFICIARIES_URL}/{created['id']}")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_delete_nonexistent_beneficiary_returns_404(self):
+        res = self.client.delete(f"{BENEFICIARIES_URL}/{uuid.uuid4()}")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_malformed_id_returns_404_not_500(self):
+        res = self.client.delete(f"{BENEFICIARIES_URL}/not-a-uuid")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_user_cannot_see_another_users_beneficiaries(self):
+        """Isolation stricte — un utilisateur ne voit jamais les bénéficiaires
+        enregistrés par un autre."""
+        self.client.post(
+            BENEFICIARIES_URL,
+            self._payload(name='Bénéficiaire de A', number='+237699000001'),
+            format='json',
+        )
+
+        user_b = {
+            'email': 'beneficiaries-b@krypt.fr',
+            'password': 'Secur3Pass!',
+            'first_name': 'Bob',
+            'last_name': 'Nkomo',
+            'phone': '+33612000098',
+        }
+        res_b = self.client.post(REGISTER_URL, user_b, format='json')
+        access_b = res_b.data['tokens']['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_b}')
+
+        res = self.client.get(BENEFICIARIES_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
+
+    def test_user_cannot_delete_another_users_beneficiary(self):
+        """Isolation stricte — un utilisateur ne peut pas supprimer un
+        bénéficiaire appartenant à un autre (404, pas 403 : n'expose pas son
+        existence)."""
+        from contexts.transfer.models import SavedBeneficiaryModel
+
+        beneficiary_of_a = self.client.post(
+            BENEFICIARIES_URL,
+            self._payload(name='Bénéficiaire de A', number='+237699000001'),
+            format='json',
+        ).data
+
+        user_b = {
+            'email': 'beneficiaries-delete-b@krypt.fr',
+            'password': 'Secur3Pass!',
+            'first_name': 'Bob',
+            'last_name': 'Nkomo',
+            'phone': '+33612000097',
+        }
+        res_b = self.client.post(REGISTER_URL, user_b, format='json')
+        access_b = res_b.data['tokens']['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_b}')
+
+        res = self.client.delete(f"{BENEFICIARIES_URL}/{beneficiary_of_a['id']}")
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(
+            SavedBeneficiaryModel.objects.filter(pk=beneficiary_of_a['id']).exists(),
+            "le bénéficiaire de A doit toujours exister, non supprimé par B",
+        )
+
+
+class TransferReceiptViewTests(APITestCase):
+    """GET /api/transfer/<id>/receipt — reçu PDF, uniquement pour un transfert
+    DELIVERED appartenant à l'utilisateur connecté. On vérifie que le contenu
+    retourné est un PDF valide (magic bytes), pas son rendu exact — même
+    approche que test_tracfin_report_contains_academic_disclaimer."""
+
+    def setUp(self):
+        self.access, self.user_id = _register(self.client)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access}')
+
+    def _create_transaction(self, sender_id=None, **overrides):
+        from contexts.transfer.models import TransactionModel
+        defaults = dict(
+            sender_id=uuid.UUID(sender_id or self.user_id),
+            beneficiary_name='Jean Mbarga',
+            beneficiary_country='CM',
+            momo_number='+237699000002',
+            operator='MTN_MOMO',
+            amount_eur=Decimal('100.00'),
+            fees_eur=Decimal('1.50'),
+            amount_xaf=Decimal('64611.76'),
+            status='DELIVERED',
+            escrow_tx_hash='0xdeadbeef',
+            payout_reference='mtn-ref-1',
+        )
+        defaults.update(overrides)
+        return TransactionModel.objects.create(**defaults)
+
+    def test_receipt_for_delivered_transfer_returns_valid_pdf(self):
+        txn = self._create_transaction()
+
+        res = self.client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertIn('attachment', res['Content-Disposition'])
+        self.assertIn(str(txn.id), res['Content-Disposition'])
+        self.assertTrue(res.content.startswith(b'%PDF-'))
+
+    def test_receipt_requires_authentication(self):
+        txn = self._create_transaction()
+        anon_client = self.client_class()
+
+        res = anon_client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_receipt_not_available_for_non_delivered_transfer(self):
+        txn = self._create_transaction(status='ESCROWED')
+
+        res = self.client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data['error'], 'RECEIPT_NOT_AVAILABLE')
+
+    def test_receipt_nonexistent_transfer_returns_404(self):
+        res = self.client.get(f'/api/transfer/{uuid.uuid4()}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_receipt_isolation_other_user_returns_404_not_403(self):
+        from contexts.identity.models import UserModel
+
+        other_user = UserModel.objects.create_user(
+            email='receipt-other@krypt.fr', password='Secur3Pass!',
+            first_name='Autre', last_name='Sender', phone='+237699000098',
+        )
+        txn = self._create_transaction(sender_id=str(other_user.pk))
+
+        res = self.client.get(f'/api/transfer/{txn.id}/receipt')
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)

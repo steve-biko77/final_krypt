@@ -80,7 +80,11 @@ class NotificationTaskTests(APITestCase):
         self.assertEqual(len(mail.outbox), 1)
         body = mail.outbox[0].alternatives[0][0]
         self.assertIn('Jean Mbarga', body)
-        self.assertIn('100.00', body)
+        # Formatage à la française (virgule décimale) — cf. filtre
+        # ``format_eur`` (contexts/notification/templatetags/email_extras.py),
+        # cohérent avec formatEUR côté frontend. Le montant brut (point
+        # décimal) n'apparaît plus tel quel dans le corps de l'email.
+        self.assertIn('100,00', body)
 
     def test_notification_sent_on_transfer_delivered(self):
         """Email ET SMS mocké sont tous deux déclenchés (KRYP-26 : SMS livraison)."""
@@ -278,6 +282,13 @@ class EmailTemplateRenderTests(SimpleTestCase):
         },
         'notification/transfer_failed.html': {
             'beneficiary_name': 'Jean Mbarga',
+        },
+        'notification/docs_requested.html': {},
+        'notification/admin_alert_pending_review.html': {
+            'transaction_id': 'txn-test-1',
+        },
+        'notification/admin_alert_escalated.html': {
+            'transaction_id': 'txn-test-1',
         },
     }
 

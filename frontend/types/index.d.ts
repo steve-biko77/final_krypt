@@ -137,6 +137,10 @@ declare interface HeaderBoxProps {
 
 declare interface MobileNavProps {
   user: User;
+  /** Correctif shadcn/ui — nombre de dossiers AML en attente (badge sur le
+   * lien Console AML), résolu côté serveur ((root)/layout.tsx) uniquement si
+   * user.is_staff. */
+  pendingAmlCount?: number;
 }
 
 declare interface PageHeaderProps {
@@ -173,9 +177,8 @@ declare interface TotalBalanceBoxProps {
   totalCurrentBalance: number;
 }
 
-declare interface FooterProps {
+declare interface UserMenuProps {
   user: User;
-  type?: 'mobile' | 'desktop';
 }
 
 declare interface RightSidebarProps {
@@ -186,6 +189,8 @@ declare interface RightSidebarProps {
 
 declare interface SiderbarProps {
   user: User;
+  /** Correctif shadcn/ui — voir MobileNavProps. */
+  pendingAmlCount?: number;
 }
 
 declare interface RecentTransactionsProps {
@@ -213,10 +218,6 @@ declare interface CategoryProps {
 }
 
 declare interface DoughnutChartProps {
-  accounts: Account[];
-}
-
-declare interface PaymentTransferFormProps {
   accounts: Account[];
 }
 
